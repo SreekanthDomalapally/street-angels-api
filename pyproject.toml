@@ -1,6 +1,6 @@
 [project]
-name = "street-angels-api"
-version = "0.2.0"
+name = "youhooalert-api"
+version = "1.0.0"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
@@ -8,9 +8,18 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "python-multipart>=0.0.12",
     "email-validator>=2.2.0",
-    "sqlalchemy>=2.0.36",
+    "sqlalchemy[asyncio]>=2.0.36",
     "psycopg[binary]>=3.2.0",
     "alembic>=1.14.0",
+    "redis>=5.0.0",
+    "httpx>=0.27.0",
+    "PyJWT>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
+    "google-auth>=2.29.0",
+    "firebase-admin>=6.5.0",
+    "stripe>=10.0.0",
+    "slowapi>=0.1.9",
+    "python-json-logger>=2.0.7",
 ]
 
 [tool.vercel]

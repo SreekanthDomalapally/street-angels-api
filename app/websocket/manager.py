@@ -1,0 +1,71 @@
+import asyncio
+from typing import Any
+
+from fastapi import WebSocket
+from starlette.websockets import WebSocketDisconnect
+
+from app.core.logging import get_logger
+from app.core.security import decode_token
+
+logger = get_logger(__name__)
+
+
+class AlertWebSocketManager:
+    def __init__(self) -> None:
+        self._channels: dict[str, set[WebSocket]] = {}
+        self._lock = asyncio.Lock()
+
+    async def connect(self, alert_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        async with self._lock:
+            self._channels.setdefault(alert_id, set()).add(websocket)
+        logger.info("ws_connected", extra={"alert_id": alert_id})
+
+    async def disconnect(self, alert_id: str, websocket: WebSocket) -> None:
+        async with self._lock:
+            if alert_id in self._channels:
+                self._channels[alert_id].discard(websocket)
+                if not self._channels[alert_id]:
+                    del self._channels[alert_id]
+
+    async def broadcast(self, alert_id: str, message: dict[str, Any]) -> None:
+        async with self._lock:
+            sockets = list(self._channels.get(alert_id, set()))
+        dead: list[WebSocket] = []
+        for ws in sockets:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            await self.disconnect(alert_id, ws)
+
+    @staticmethod
+    def authenticate(token: str | None) -> str | None:
+        if not token:
+            return None
+        try:
+            payload = decode_token(token)
+            if payload.get("type") != "access":
+                return None
+            return payload["sub"]
+        except Exception:
+            return None
+
+
+alert_ws_manager = AlertWebSocketManager()
+
+
+async def websocket_endpoint(websocket: WebSocket, alert_id: str, token: str | None = None) -> None:
+    user_id = AlertWebSocketManager.authenticate(token)
+    if not user_id:
+        await websocket.close(code=4401)
+        return
+    await alert_ws_manager.connect(alert_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await alert_ws_manager.disconnect(alert_id, websocket)

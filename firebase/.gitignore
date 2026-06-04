@@ -1,0 +1,3 @@
+# Server credentials for FCM (NEVER commit)
+*-firebase-adminsdk-*.json
+firebase-adminsdk*.json

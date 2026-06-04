@@ -1,0 +1,207 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.common.enums import AlertStatus
+from app.core.config import settings
+from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
+from app.core.logging import get_logger
+from app.models import Alert, AlertEvent, AlertLocationUpdate, AlertResponse, AuditLog, User
+from app.repositories.alert_repository import AlertRepository
+from app.repositories.group_repository import GroupRepository
+from app.repositories.user_repository import UserRepository
+from app.schemas import AlertCreateRequest, AlertResponseRequest, LocationUpdateRequest
+from app.services.notification_queue import NotificationQueue
+from app.websocket.manager import alert_ws_manager
+
+logger = get_logger(__name__)
+
+
+class AlertService:
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+        self.alerts = AlertRepository(db)
+        self.groups = GroupRepository(db)
+        self.users = UserRepository(db)
+        self.queue = NotificationQueue()
+
+    async def create(self, user: User, body: AlertCreateRequest) -> Alert:
+        if not await self.groups.is_member(body.group_id, user.id):
+            raise ForbiddenError("You are not a member of this group")
+        self._validate_location(body.latitude, body.longitude)
+
+        alert = Alert(
+            created_by=user.id,
+            group_id=body.group_id,
+            alert_type=body.alert_type.value,
+            message=body.message,
+            latitude=body.latitude,
+            longitude=body.longitude,
+            status=AlertStatus.ACTIVE.value,
+        )
+        await self.alerts.create(alert)
+        user.last_known_latitude = body.latitude
+        user.last_known_longitude = body.longitude
+        await self.users.update(user)
+
+        await self._log_event(alert.id, "alert.created", {"created_by": str(user.id)})
+        await self._audit(user.id, "alert.create", str(alert.id))
+
+        member_ids = await self._group_member_ids(body.group_id)
+        await self.queue.enqueue_alert_created(
+            alert_id=str(alert.id),
+            group_id=str(body.group_id),
+            alert_type=alert.alert_type,
+            latitude=alert.latitude,
+            longitude=alert.longitude,
+            recipient_user_ids=[str(uid) for uid in member_ids if uid != user.id],
+        )
+        await alert_ws_manager.broadcast(
+            str(alert.id),
+            {"type": "alert_created", "alert_id": str(alert.id), "status": alert.status},
+        )
+        logger.info("alert_created", extra={"alert_id": str(alert.id), "user_id": str(user.id)})
+        return alert
+
+    async def respond(self, user: User, alert_id: UUID, body: AlertResponseRequest) -> AlertResponse:
+        alert = await self._require_alert_access(user, alert_id)
+        if alert.status != AlertStatus.ACTIVE.value:
+            raise ValidationError("Alert is not active")
+        existing = await self.alerts.get_response(alert_id, user.id)
+        if existing:
+            existing.response_type = body.response_type.value
+            existing.eta_minutes = body.eta_minutes
+            response = existing
+        else:
+            response = AlertResponse(
+                alert_id=alert_id,
+                user_id=user.id,
+                response_type=body.response_type.value,
+                eta_minutes=body.eta_minutes,
+            )
+            await self.alerts.add_response(response)
+
+        await self._log_event(
+            alert_id,
+            "alert.response",
+            {"user_id": str(user.id), "response_type": body.response_type.value},
+        )
+        await self.queue.enqueue_alert_response(
+            alert_id=str(alert_id),
+            creator_id=str(alert.created_by),
+            responder_name=user.full_name,
+            response_type=body.response_type.value,
+        )
+        await alert_ws_manager.broadcast(
+            str(alert_id),
+            {
+                "type": "alert_response",
+                "user_id": str(user.id),
+                "response_type": body.response_type.value,
+                "eta_minutes": body.eta_minutes,
+            },
+        )
+        return response
+
+    async def update_location(
+        self, user: User, alert_id: UUID, body: LocationUpdateRequest
+    ) -> AlertLocationUpdate:
+        alert = await self._require_alert_access(user, alert_id)
+        if alert.status != AlertStatus.ACTIVE.value:
+            raise ValidationError("Alert is not active")
+        self._validate_location(body.latitude, body.longitude, body.accuracy_meters)
+
+        result = await self.db.execute(
+            select(AlertLocationUpdate)
+            .where(AlertLocationUpdate.alert_id == alert_id, AlertLocationUpdate.user_id == user.id)
+            .order_by(AlertLocationUpdate.recorded_at.desc())
+            .limit(1)
+        )
+        last = result.scalar_one_or_none()
+        if last:
+            elapsed = (datetime.now(UTC) - last.recorded_at).total_seconds()
+            if elapsed < settings.location_min_update_seconds:
+                raise ValidationError(
+                    f"Location updates throttled to every {settings.location_min_update_seconds}s"
+                )
+
+        update = AlertLocationUpdate(
+            alert_id=alert_id,
+            user_id=user.id,
+            latitude=body.latitude,
+            longitude=body.longitude,
+            accuracy_meters=body.accuracy_meters,
+        )
+        await self.alerts.add_location(update)
+        user.last_known_latitude = body.latitude
+        user.last_known_longitude = body.longitude
+        await self.users.update(user)
+
+        payload = {
+            "type": "location_update",
+            "user_id": str(user.id),
+            "latitude": body.latitude,
+            "longitude": body.longitude,
+            "accuracy_meters": body.accuracy_meters,
+            "recorded_at": update.recorded_at.isoformat(),
+        }
+        await alert_ws_manager.broadcast(str(alert_id), payload)
+        return update
+
+    async def resolve(self, user: User, alert_id: UUID) -> Alert:
+        alert = await self.alerts.get_by_id(alert_id)
+        if not alert:
+            raise NotFoundError("Alert not found")
+        if alert.created_by != user.id:
+            raise ForbiddenError("Only the alert creator can resolve it")
+        alert.status = AlertStatus.RESOLVED.value
+        alert.resolved_at = datetime.now(UTC)
+        await self._log_event(alert_id, "alert.resolved", {"resolved_by": str(user.id)})
+        await alert_ws_manager.broadcast(
+            str(alert_id), {"type": "alert_resolved", "alert_id": str(alert_id)}
+        )
+        return alert
+
+    async def get(self, user: User, alert_id: UUID) -> Alert:
+        return await self._require_alert_access(user, alert_id)
+
+    async def _require_alert_access(self, user: User, alert_id: UUID) -> Alert:
+        alert = await self.alerts.get_by_id(alert_id)
+        if not alert:
+            raise NotFoundError("Alert not found")
+        if alert.created_by == user.id:
+            return alert
+        if await self.groups.is_member(alert.group_id, user.id):
+            return alert
+        raise ForbiddenError("No access to this alert")
+
+    async def _group_member_ids(self, group_id: UUID) -> list[UUID]:
+        group = await self.groups.get_by_id(group_id)
+        if not group:
+            return []
+        return [m.user_id for m in group.members]
+
+    async def _log_event(self, alert_id: UUID, event_type: str, payload: dict) -> None:
+        await self.alerts.log_event(AlertEvent(alert_id=alert_id, event_type=event_type, payload=payload))
+
+    async def _audit(self, user_id: UUID, action: str, resource_id: str) -> None:
+        self.db.add(
+            AuditLog(
+                user_id=user_id,
+                action=action,
+                resource_type="alert",
+                resource_id=resource_id,
+            )
+        )
+
+    def _validate_location(
+        self, lat: float, lng: float, accuracy: float | None = None
+    ) -> None:
+        if abs(lat) > 90 or abs(lng) > 180:
+            raise ValidationError("Invalid coordinates")
+        if lat == 0.0 and lng == 0.0:
+            raise ValidationError("Invalid location (0,0)")
+        if accuracy is not None and accuracy > settings.location_max_accuracy_meters:
+            raise ValidationError("Location accuracy too low")

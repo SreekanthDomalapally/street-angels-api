@@ -14,3 +14,5 @@ build/
 .ruff_cache/
 .coverage
 htmlcov/
+firebase/*-adminsdk*.json
+firebase/*firebase-adminsdk*.json

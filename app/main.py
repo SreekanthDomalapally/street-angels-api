@@ -1,28 +1,43 @@
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.config import settings
-from app.db.database import check_db_connection
-from app.routers import admin, auth, contacts, emergencies, users
-from app.services import store
+from app.api.v1.router import api_router
+from app.core.config import settings
+from app.core.exceptions import AppError
+from app.core.logging import setup_logging
+from app.core.rate_limit import limiter
+from app.db.session import check_db_connection
+from app.websocket.manager import websocket_endpoint
+from app.workers.notification_worker import notification_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
+    await notification_worker.start()
     yield
+    await notification_worker.stop()
 
 
 app = FastAPI(
-    title="youhooalert API",
-    description="Backend API for youhooalert",
-    version="0.2.0",
+    title=settings.app_name,
+    description="Emergency coordination API — SOS alerts, live location, trusted groups",
+    version=settings.app_version,
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,41 +47,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, prefix="/api")
-app.include_router(users.router, prefix="/api")
-app.include_router(contacts.router, prefix="/api")
-app.include_router(emergencies.router, prefix="/api")
-app.include_router(admin.router, prefix="/api")
+app.include_router(api_router, prefix=settings.api_prefix)
+
+
+@app.websocket("/ws/alerts/{alert_id}")
+async def alert_websocket(websocket: WebSocket, alert_id: str, token: str | None = None) -> None:
+    await websocket_endpoint(websocket, alert_id, token)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "storage": store.storage_mode()}
+async def health() -> dict[str, str]:
+    return {"status": "ok", "environment": settings.environment}
 
 
 @app.get("/health/db")
-def health_db() -> dict:
+async def health_db() -> dict[str, str]:
     if not settings.uses_database:
-        return {"status": "skipped", "message": "Set DATABASE_URL in .env"}
-    try:
-        ok = check_db_connection()
-        return {"status": "ok" if ok else "error", "storage": "postgres"}
-    except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+        return {"status": "skipped", "message": "DATABASE_URL not set"}
+    ok = await check_db_connection()
+    return {"status": "ok" if ok else "error", "storage": "postgres"}
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.message, "code": exc.code, "details": exc.details},
+    )
 
 
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-    if isinstance(exc.detail, dict) and "error" in exc.detail:
+async def http_exception_handler(_request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    if isinstance(exc.detail, dict):
         return JSONResponse(status_code=exc.status_code, content=exc.detail)
     return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(
-    request: Request, exc: RequestValidationError
+    _request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=422,
-        content={"error": "Validation failed", "details": exc.errors()},
+        content={"error": "Validation failed", "code": "validation_error", "details": exc.errors()},
     )

@@ -1,0 +1,33 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://youhoo:youhoo@postgres:5432/youhooalert
+      DATABASE_URL_UNPOOLED: postgresql://youhoo:youhoo@postgres:5432/youhooalert
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: youhoo
+      POSTGRES_PASSWORD: youhoo
+      POSTGRES_DB: youhooalert
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
