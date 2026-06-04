@@ -27,30 +27,30 @@ def clear_session_cookie(response: Response) -> None:
     response.set_cookie(value="", max_age=0, **_session_cookie_kwargs())
 
 
+def _unauthorized(response: Response) -> None:
+    clear_session_cookie(response)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=ErrorResponse(error="Not authenticated").model_dump(),
+    )
+
+
 async def require_user(
+    response: Response,
     db: DbSession,
     sa_session: Annotated[str | None, Cookie(alias="sa_session")] = None,
 ) -> tuple[Session | None, str, store.User]:
     if not sa_session:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorResponse(error="Not authenticated").model_dump(),
-        )
+        _unauthorized(response)
 
     user_id = store.get_user_id_from_session(db, sa_session)
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorResponse(error="Not authenticated").model_dump(),
-        )
+        _unauthorized(response)
 
     user = store.get_user(db, user_id)
     if not user:
         store.destroy_session(db, sa_session)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorResponse(error="Not authenticated").model_dump(),
-        )
+        _unauthorized(response)
 
     return db, user_id, user
 
