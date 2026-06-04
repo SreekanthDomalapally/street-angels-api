@@ -18,8 +18,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Street Angels API",
-    description="Backend API for the Street Angels safety app",
+    title="youhooalert API",
+    description="Backend API for youhooalert",
     version="0.2.0",
     lifespan=lifespan,
 )
@@ -47,7 +47,7 @@ def health() -> dict[str, str]:
 @app.get("/health/db")
 def health_db() -> dict:
     if not settings.uses_database:
-        return {"status": "skipped", "message": "Set POSTGRES_URL or DATABASE_URL in .env"}
+        return {"status": "skipped", "message": "Set DATABASE_URL in .env"}
     try:
         ok = check_db_connection()
         return {"status": "ok" if ok else "error", "storage": "postgres"}

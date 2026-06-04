@@ -1,4 +1,4 @@
-"""Data access facade: PostgreSQL when DATABASE_URL/POSTGRES_URL is set, else in-memory."""
+"""Data access facade: PostgreSQL when DATABASE_URL is set, else in-memory."""
 
 from sqlalchemy.orm import Session
 
