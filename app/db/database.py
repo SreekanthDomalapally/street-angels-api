@@ -19,7 +19,12 @@ def get_engine() -> Engine | None:
     if not url:
         return None
     if _engine is None:
-        _engine = create_engine(url, pool_pre_ping=True)
+        _engine = create_engine(
+            url,
+            pool_pre_ping=True,
+            # Neon/Vercel pooler (PgBouncer) does not support prepared statements.
+            connect_args={"prepare_threshold": None},
+        )
         _SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
     return _engine
 
