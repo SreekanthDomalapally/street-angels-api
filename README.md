@@ -58,6 +58,28 @@ alembic stamp 001
 alembic upgrade head
 ```
 
+**Check / create tables** (uses `.env` URLs):
+
+```bash
+python scripts/db_setup.py
+```
+
+**Tables missing in Neon console?** The API uses whatever `DATABASE_URL` is set in Vercel — often database name `neondb`, not the project display name. In Neon → your project → **Branches** → **production** → **SQL Editor**, run:
+
+```sql
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = 'public' ORDER BY 1;
+```
+
+Pull production env and migrate that database:
+
+```bash
+npx vercel link
+npx vercel env pull .env.production
+# Copy DATABASE_URL and DATABASE_URL_UNPOOLED into .env, then:
+alembic upgrade head
+```
+
 ### Pull env from Vercel CLI (optional)
 
 ```bash
