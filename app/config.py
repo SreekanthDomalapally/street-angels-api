@@ -14,7 +14,7 @@ def normalize_database_url(url: str) -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     session_cookie: str = "sa_session"
     session_max_age: int = 60 * 60 * 24 * 7
 

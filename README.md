@@ -68,13 +68,35 @@ Session auth uses the `sa_session` HTTP-only cookie (same as the UI mock).
 
 ## Connect the UI
 
-Point the Next.js app at this server (e.g. proxy `/api` to `http://localhost:8000/api` in `next.config` or set `NEXT_PUBLIC_API_URL` if you add a fetch base URL).
+The Next.js app proxies `/api/*` to this server when `API_URL` is set in the UI project.
 
-Default CORS allows `http://localhost:3000`. Override in `.env`:
+**Local dev** — in `street-angels-ui/.env.local`:
+
+```env
+API_URL=http://localhost:8000
+```
+
+Run both servers (API on `:8000`, UI on `:3000`), then open http://localhost:3000.
+
+**Vercel** — set `API_URL` on the UI project to your deployed API URL (e.g. `https://street-angels-api.vercel.app`). Set `CORS_ORIGINS` on this API project to your UI URL(s).
+
+Default CORS allows `http://localhost:3000` and `http://127.0.0.1:3000`. Override in `.env`:
 
 ```
-CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://your-app.vercel.app
 ```
+
+## Deploy on Vercel
+
+1. Import this repo as a Vercel project.
+2. Connect your Neon database (Storage) so `DATABASE_URL` is injected.
+3. Add `CORS_ORIGINS` with your UI production URL.
+4. Deploy — Vercel auto-detects FastAPI via `app.main:app` (`pyproject.toml`).
+
+Health checks after deploy:
+
+- `GET /health` → `"storage": "postgres"`
+- `GET /health/db` → `"status": "ok"`
 
 ## Notes
 
