@@ -6,6 +6,7 @@ class UserResponse(BaseModel):
     name: str
     email: str
     emergencyPhrase: str | None = None
+    isAdmin: bool = False
 
 
 class AuthRegister(BaseModel):

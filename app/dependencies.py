@@ -52,8 +52,25 @@ async def require_user(
         store.destroy_session(db, sa_session)
         _unauthorized(response)
 
+    if user.suspended:
+        _unauthorized(response)
+
     return db, user_id, user
 
 
 def user_response(user: store.User) -> UserResponse:
-    return UserResponse(**user.to_dict())
+    data = user.to_dict()
+    data["isAdmin"] = user.email.lower() in settings.admin_email_set
+    return UserResponse(**data)
+
+
+async def require_admin(
+    auth: Annotated[tuple, Depends(require_user)],
+) -> tuple:
+    _, _, user = auth
+    if user.email.lower() not in settings.admin_email_set:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ErrorResponse(error="Admin access required").model_dump(),
+        )
+    return auth

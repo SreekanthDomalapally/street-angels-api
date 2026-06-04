@@ -7,15 +7,13 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.db.database import check_db_connection, init_db
-from app.routers import auth, contacts, emergencies, users
+from app.db.database import check_db_connection
+from app.routers import admin, auth, contacts, emergencies, users
 from app.services import store
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.uses_database:
-        init_db()
     yield
 
 
@@ -38,6 +36,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(emergencies.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 
 
 @app.get("/health")

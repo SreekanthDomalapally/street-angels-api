@@ -8,6 +8,8 @@ from app.services import db_store, memory_store
 User = memory_store.User
 Contact = memory_store.Contact
 Emergency = memory_store.Emergency
+AdminEmergency = memory_store.AdminEmergency
+AdminUser = memory_store.AdminUser
 
 
 def create_session(db: Session | None, user_id: str) -> str:
@@ -129,6 +131,30 @@ def update_emergency(
     if db is not None:
         return db_store.update_emergency(db, user_id, emergency_id, status=status)
     return memory_store.update_emergency(user_id, emergency_id, status=status)
+
+
+def list_admin_emergencies(db: Session | None) -> list[AdminEmergency]:
+    if db is not None:
+        return db_store.list_admin_emergencies(db)
+    return memory_store.list_admin_emergencies()
+
+
+def list_admin_users(db: Session | None) -> list[AdminUser]:
+    if db is not None:
+        return db_store.list_admin_users(db)
+    return memory_store.list_admin_users()
+
+
+def set_user_suspended(db: Session | None, user_id: str, suspended: bool) -> User | None:
+    if db is not None:
+        return db_store.set_user_suspended(db, user_id, suspended)
+    return memory_store.set_user_suspended(user_id, suspended)
+
+
+def admin_resolve_emergency(db: Session | None, emergency_id: str) -> Emergency | None:
+    if db is not None:
+        return db_store.admin_resolve_emergency(db, emergency_id)
+    return memory_store.admin_resolve_emergency(emergency_id)
 
 
 def storage_mode() -> str:

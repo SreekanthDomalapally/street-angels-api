@@ -7,8 +7,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
-from app.db.models import Base
-
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
 
@@ -27,12 +25,6 @@ def get_engine() -> Engine | None:
         )
         _SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
     return _engine
-
-
-def init_db() -> None:
-    engine = get_engine()
-    if engine is not None:
-        Base.metadata.create_all(bind=engine)
 
 
 def get_db() -> Generator[Session | None, None, None]:

@@ -2,11 +2,11 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import ContactRow, EmergencyRow, SessionRow, UserRow
-from app.services.memory_store import DEFAULT_CONTACTS, Contact, Emergency, User
+from app.services.memory_store import AdminEmergency, AdminUser, Contact, Emergency, User
 
 
 def _new_id() -> str:
@@ -19,6 +19,7 @@ def _user_from_row(row: UserRow) -> User:
         name=row.name,
         email=row.email,
         emergency_phrase=row.emergency_phrase,
+        suspended=row.suspended,
     )
 
 
@@ -44,25 +45,6 @@ def _emergency_from_row(row: EmergencyRow) -> Emergency:
         lat=row.lat,
         lng=row.lng,
     )
-
-
-def _seed_contacts(db: Session, user_id: str) -> None:
-    existing = db.scalar(
-        select(ContactRow.id).where(ContactRow.user_id == user_id).limit(1)
-    )
-    if existing:
-        return
-    for c in DEFAULT_CONTACTS:
-        db.add(
-            ContactRow(
-                id=_new_id(),
-                user_id=user_id,
-                name=c["name"],
-                phone=c["phone"],
-                priority=c["priority"],
-            )
-        )
-    db.flush()
 
 
 def create_session(db: Session, user_id: str) -> str:
@@ -97,7 +79,6 @@ def register_user(db: Session, name: str, email: str) -> User:
     )
     db.add(user_row)
     db.flush()
-    _seed_contacts(db, user_row.id)
     return _user_from_row(user_row)
 
 
@@ -220,5 +201,74 @@ def update_emergency(
         return None
     if status:
         row.status = status
+    db.flush()
+    return _emergency_from_row(row)
+
+
+def list_admin_emergencies(db: Session) -> list[AdminEmergency]:
+    rows = db.scalars(
+        select(EmergencyRow).order_by(EmergencyRow.started_at.desc())
+    ).all()
+    result: list[AdminEmergency] = []
+    for row in rows:
+        user = db.get(UserRow, row.user_id)
+        if not user:
+            continue
+        contacts_count = db.scalar(
+            select(func.count())
+            .select_from(ContactRow)
+            .where(ContactRow.user_id == row.user_id)
+        )
+        emergency = _emergency_from_row(row)
+        result.append(
+            AdminEmergency(
+                id=emergency.id,
+                user_id=emergency.user_id,
+                user_name=user.name,
+                status=emergency.status,
+                started_at=emergency.started_at,
+                lat=emergency.lat,
+                lng=emergency.lng,
+                contacts_count=int(contacts_count or 0),
+            )
+        )
+    return result
+
+
+def list_admin_users(db: Session) -> list[AdminUser]:
+    users = db.scalars(select(UserRow).order_by(UserRow.name)).all()
+    result: list[AdminUser] = []
+    for user in users:
+        emergencies = db.scalar(
+            select(func.count())
+            .select_from(EmergencyRow)
+            .where(EmergencyRow.user_id == user.id)
+        )
+        result.append(
+            AdminUser(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                suspended=user.suspended,
+                emergencies=int(emergencies or 0),
+            )
+        )
+    return result
+
+
+def set_user_suspended(db: Session, user_id: str, suspended: bool) -> User | None:
+    row = db.get(UserRow, user_id)
+    if not row:
+        return None
+    row.suspended = suspended
+    db.flush()
+    return _user_from_row(row)
+
+
+def admin_resolve_emergency(db: Session, emergency_id: str) -> Emergency | None:
+    row = db.get(EmergencyRow, emergency_id)
+    if not row:
+        return None
+    row.status = "resolved"
     db.flush()
     return _emergency_from_row(row)

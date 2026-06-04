@@ -3,13 +3,6 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-DEFAULT_CONTACTS = [
-    {"name": "Sarah", "phone": "+1 555 010 0001", "priority": 1},
-    {"name": "James", "phone": "+1 555 010 0002", "priority": 2},
-    {"name": "Mum", "phone": "+1 555 010 0003", "priority": 3},
-]
-
-
 def _new_id() -> str:
     return str(uuid.uuid4())
 
@@ -20,6 +13,7 @@ class User:
     name: str
     email: str
     emergency_phrase: str | None = None
+    suspended: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -27,6 +21,7 @@ class User:
             "name": self.name,
             "email": self.email,
             "emergencyPhrase": self.emergency_phrase,
+            "suspended": self.suspended,
         }
 
 
@@ -98,21 +93,6 @@ def destroy_session(session_id: str) -> None:
     _get().sessions.pop(session_id, None)
 
 
-def _seed_contacts(user_id: str) -> None:
-    store = _get()
-    if any(c.user_id == user_id for c in store.contacts.values()):
-        return
-    for c in DEFAULT_CONTACTS:
-        contact = Contact(
-            id=_new_id(),
-            user_id=user_id,
-            name=c["name"],
-            phone=c["phone"],
-            priority=c["priority"],
-        )
-        store.contacts[contact.id] = contact
-
-
 def register_user(name: str, email: str) -> User:
     store = _get()
     normalized = email.lower().strip()
@@ -123,7 +103,6 @@ def register_user(name: str, email: str) -> User:
     user = User(id=_new_id(), name=name.strip(), email=normalized)
     store.users[user.id] = user
     store.email_to_user_id[normalized] = user.id
-    _seed_contacts(user.id)
     return user
 
 
@@ -239,4 +218,83 @@ def update_emergency(
         return None
     if status:
         emergency.status = status
+    return emergency
+
+
+@dataclass
+class AdminEmergency:
+    id: str
+    user_id: str
+    user_name: str
+    status: str
+    started_at: str
+    lat: float
+    lng: float
+    contacts_count: int
+
+
+@dataclass
+class AdminUser:
+    id: str
+    name: str
+    email: str
+    suspended: bool
+    emergencies: int
+
+
+def list_admin_emergencies() -> list[AdminEmergency]:
+    store = _get()
+    result: list[AdminEmergency] = []
+    for e in store.emergencies.values():
+        user = store.users.get(e.user_id)
+        if not user:
+            continue
+        contacts_count = sum(1 for c in store.contacts.values() if c.user_id == e.user_id)
+        result.append(
+            AdminEmergency(
+                id=e.id,
+                user_id=e.user_id,
+                user_name=user.name,
+                status=e.status,
+                started_at=e.started_at,
+                lat=e.lat,
+                lng=e.lng,
+                contacts_count=contacts_count,
+            )
+        )
+    result.sort(key=lambda x: x.started_at, reverse=True)
+    return result
+
+
+def list_admin_users() -> list[AdminUser]:
+    store = _get()
+    users: list[AdminUser] = []
+    for user in store.users.values():
+        emergencies = sum(1 for e in store.emergencies.values() if e.user_id == user.id)
+        users.append(
+            AdminUser(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                suspended=user.suspended,
+                emergencies=emergencies,
+            )
+        )
+    users.sort(key=lambda u: u.name.lower())
+    return users
+
+
+def set_user_suspended(user_id: str, suspended: bool) -> User | None:
+    user = _get().users.get(user_id)
+    if not user:
+        return None
+    user.suspended = suspended
+    return user
+
+
+def admin_resolve_emergency(emergency_id: str) -> Emergency | None:
+    emergency = _get().emergencies.get(emergency_id)
+    if not emergency:
+        return None
+    emergency.status = "resolved"
     return emergency
