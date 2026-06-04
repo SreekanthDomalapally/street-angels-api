@@ -105,12 +105,34 @@ python scripts/db_setup.py    # verify tables
 
 **Note:** Migration `003` rebuilds the schema for the mobile platform (drops legacy web tables).
 
-## Neon / Vercel
+## Railway PostgreSQL
 
-1. Set `DATABASE_URL` + `DATABASE_URL_UNPOOLED` on the API project
-2. Add Redis (Upstash) → `REDIS_URL`
-3. Run `alembic upgrade head` before deploy
-4. Set `JWT_SECRET_KEY`, `CORS_ORIGINS`, optional FCM/Stripe/Google vars
+Railway provides two connection URLs (copy **resolved** values from Postgres → **Connect**, not `${{...}}` templates):
+
+| Variable | When to use |
+|----------|-------------|
+| `DATABASE_PUBLIC_URL` | **Local dev**, Alembic migrations, tools outside Railway |
+| `DATABASE_URL` | **API running on Railway** (private network, faster) |
+
+For local `.env`, set both to the **public** URL:
+
+```env
+DATABASE_URL=postgresql://postgres:...@xxxx.railway.app:PORT/railway?sslmode=require
+DATABASE_URL_UNPOOLED=postgresql://postgres:...@xxxx.railway.app:PORT/railway?sslmode=require
+```
+
+Then migrate:
+
+```bash
+alembic upgrade head
+python scripts/seed.py
+```
+
+On the **Railway API service**, link the Postgres plugin — Railway injects `DATABASE_URL` automatically. Add `JWT_SECRET_KEY`, `REDIS_URL`, `CORS_ORIGINS`, etc.
+
+## Vercel (API host) + Railway (database)
+
+If the API stays on Vercel but DB is on Railway, set `DATABASE_URL` on Vercel to the Railway **public** URL (with `?sslmode=require`).
 
 ## Reliability
 

@@ -26,12 +26,20 @@ class Settings(BaseSettings):
 
     database_url: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("DATABASE_URL", "POSTGRES_URL", "database_url"),
+        validation_alias=AliasChoices(
+            "DATABASE_URL",
+            "DATABASE_PUBLIC_URL",
+            "POSTGRES_URL",
+            "database_url",
+        ),
     )
     database_url_unpooled: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "DATABASE_URL_UNPOOLED", "POSTGRES_URL_NON_POOLING", "database_url_unpooled"
+            "DATABASE_URL_UNPOOLED",
+            "DATABASE_PUBLIC_URL",
+            "POSTGRES_URL_NON_POOLING",
+            "database_url_unpooled",
         ),
     )
 
