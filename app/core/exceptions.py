@@ -40,3 +40,8 @@ class ConflictError(AppError):
 class ValidationError(AppError):
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message, code="validation_error", status_code=422, details=details)
+
+
+class ServiceUnavailableError(AppError):
+    def __init__(self, message: str = "Service unavailable") -> None:
+        super().__init__(message, code="service_unavailable", status_code=503)

@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.youhoolert.app</string>
+	<string>com.youhooalert.com</string>
 	<key>PROJECT_ID</key>
 	<string>youhoo-alert-app</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:1065150630879:ios:9442e8100eb4f4033f526a</string>
+	<string>1:1065150630879:ios:07795a288c9f5fa03f526a</string>
 </dict>
 </plist>

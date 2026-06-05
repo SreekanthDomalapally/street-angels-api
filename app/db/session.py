@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
+from app.core.exceptions import ServiceUnavailableError
 
 _engine = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -31,7 +32,7 @@ def get_engine():
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     get_engine()
     if _session_factory is None:
-        raise RuntimeError("DATABASE_URL is not configured")
+        raise ServiceUnavailableError("DATABASE_URL is not configured")
     async with _session_factory() as session:
         try:
             yield session
