@@ -12,7 +12,12 @@
           "package_name": "com.youhooalert.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1065150630879-prjdgu45hcopbcdbt6dr2c2sbt24u4kn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBeD_i69yZneRY4eJQo492SNVlYTm2jGrE"
@@ -20,7 +25,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1065150630879-prjdgu45hcopbcdbt6dr2c2sbt24u4kn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1065150630879-g6o4ejrg600dee5agjbak0gu24vrpkdm.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.youhooalert.com"
+              }
+            }
+          ]
         }
       }
     },
@@ -31,7 +48,20 @@
           "package_name": "com.youhooalert.com"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1065150630879-5h10usgoj8ortntijpua8331mk536jd7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.youhooalert.com",
+            "certificate_hash": "07b808b3324c514b7d35020c2e38789261e15aba"
+          }
+        },
+        {
+          "client_id": "1065150630879-prjdgu45hcopbcdbt6dr2c2sbt24u4kn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBeD_i69yZneRY4eJQo492SNVlYTm2jGrE"
@@ -39,7 +69,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1065150630879-prjdgu45hcopbcdbt6dr2c2sbt24u4kn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1065150630879-g6o4ejrg600dee5agjbak0gu24vrpkdm.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.youhooalert.com"
+              }
+            }
+          ]
         }
       }
     }
