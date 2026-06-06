@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Alert, AlertEvent, AlertLocationUpdate, AlertResponse
+from app.models import Alert, AlertEvent, AlertLocationUpdate, AlertResponse, GroupMember
 
 
 class AlertRepository:
@@ -50,10 +50,15 @@ class AlertRepository:
         await self.db.flush()
         return event
 
-    async def list_active_for_user(self, user_id: UUID) -> list[Alert]:
+    async def list_for_user(self, user_id: UUID, *, limit: int = 50) -> list[Alert]:
+        member_groups = (
+            select(GroupMember.group_id).where(GroupMember.user_id == user_id).scalar_subquery()
+        )
         result = await self.db.execute(
             select(Alert)
-            .where(Alert.created_by == user_id, Alert.status == "active")
+            .options(selectinload(Alert.responses), selectinload(Alert.location_updates))
+            .where((Alert.created_by == user_id) | (Alert.group_id.in_(member_groups)))
             .order_by(Alert.created_at.desc())
+            .limit(limit)
         )
         return list(result.scalars().all())

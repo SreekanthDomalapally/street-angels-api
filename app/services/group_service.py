@@ -2,7 +2,8 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.common.enums import GroupMemberRole
+from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.models import AuditLog, Group, GroupInvite, GroupMember, User
 from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
@@ -42,8 +43,10 @@ class GroupService:
             raise NotFoundError("User not found")
         if await self.groups.is_member(group_id, body.user_id):
             raise ForbiddenError("User is already a member")
+        if body.role == GroupMemberRole.OWNER:
+            raise ValidationError("Cannot assign owner role via API")
         await self.groups.add_member(
-            GroupMember(group_id=group.id, user_id=body.user_id, role=body.role)
+            GroupMember(group_id=group.id, user_id=body.user_id, role=body.role.value)
         )
         await self._audit(actor.id, "group.add_member", str(group_id))
 

@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import Depends, FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,8 +10,8 @@ from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
-from app.routers.legacy_api import legacy_api_router
 from app.core.config import settings
+from app.db.session import AsyncSession, get_db
 from app.core.exceptions import AppError
 from app.core.logging import setup_logging
 from app.core.rate_limit import limiter
@@ -33,8 +33,8 @@ app = FastAPI(
     description="Emergency coordination API — SOS alerts, live location, trusted groups",
     version=settings.app_version,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
 )
 
 app.state.limiter = limiter
@@ -51,12 +51,21 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_prefix)
-app.include_router(legacy_api_router, prefix="/api")
+
+if settings.enable_legacy_api:
+    from app.routers.legacy_api import legacy_api_router
+
+    app.include_router(legacy_api_router, prefix="/api")
 
 
 @app.websocket("/ws/alerts/{alert_id}")
-async def alert_websocket(websocket: WebSocket, alert_id: str, token: str | None = None) -> None:
-    await websocket_endpoint(websocket, alert_id, token)
+async def alert_websocket(
+    websocket: WebSocket,
+    alert_id: str,
+    token: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await websocket_endpoint(websocket, alert_id, token, db)
 
 
 @app.get("/health")

@@ -23,6 +23,15 @@ from app.services.alert_service import AlertService
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
+@router.get("", response_model=list[AlertOut])
+async def list_alerts(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[AlertOut]:
+    alerts = await AlertService(db).list_for_user(user)
+    return [AlertOut.model_validate(alert) for alert in alerts]
+
+
 @router.post("", response_model=AlertOut)
 @limiter.limit(settings.alert_rate_limit)
 async def create_alert(

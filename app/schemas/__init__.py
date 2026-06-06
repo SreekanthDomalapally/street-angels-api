@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.common.enums import AlertStatus, AlertType, ResponseType
+from app.common.enums import AlertStatus, AlertType, GroupMemberRole, ResponseType
 
 
 class TokenPair(BaseModel):
@@ -72,7 +72,7 @@ class GroupCreateRequest(BaseModel):
 
 class GroupMemberAddRequest(BaseModel):
     user_id: UUID
-    role: str = "member"
+    role: GroupMemberRole = GroupMemberRole.MEMBER
 
 
 class GroupInviteRequest(BaseModel):

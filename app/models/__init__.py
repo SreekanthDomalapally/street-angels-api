@@ -30,6 +30,7 @@ class User(Base):
     profile_photo: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    suspended: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     last_known_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_known_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     notification_preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")

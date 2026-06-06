@@ -6,7 +6,7 @@ from google.oauth2 import id_token
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import ConflictError, UnauthorizedError, ValidationError
+from app.core.exceptions import ConflictError, ForbiddenError, UnauthorizedError, ValidationError
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -41,6 +41,7 @@ class AuthService:
         user = await self.users.get_by_email(body.email)
         if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
+        self._ensure_active(user)
         tokens = await self._issue_tokens(user)
         return user, tokens
 
@@ -75,6 +76,7 @@ class AuthService:
                 profile_photo=info.get("picture"),
             )
             await self.users.create(user)
+        self._ensure_active(user)
         tokens = await self._issue_tokens(user)
         return user, tokens
 
@@ -104,6 +106,7 @@ class AuthService:
         user = await self.users.get_by_id(user_id)
         if not user:
             raise UnauthorizedError()
+        self._ensure_active(user)
         stored.revoked = True
         return await self._issue_tokens(user)
 
@@ -121,6 +124,10 @@ class AuthService:
         self.db.add(
             DeviceToken(user_id=user.id, token=body.token, platform=body.platform)
         )
+
+    def _ensure_active(self, user: User) -> None:
+        if user.suspended:
+            raise ForbiddenError("Account suspended")
 
     async def _issue_tokens(self, user: User) -> TokenPair:
         jti = uuid.uuid4().hex

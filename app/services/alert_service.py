@@ -167,6 +167,12 @@ class AlertService:
     async def get(self, user: User, alert_id: UUID) -> Alert:
         return await self._require_alert_access(user, alert_id)
 
+    async def require_alert_access(self, user: User, alert_id: UUID) -> Alert:
+        return await self._require_alert_access(user, alert_id)
+
+    async def list_for_user(self, user: User, *, limit: int = 50) -> list[Alert]:
+        return await self.alerts.list_for_user(user.id, limit=limit)
+
     async def _require_alert_access(self, user: User, alert_id: UUID) -> Alert:
         alert = await self.alerts.get_by_id(alert_id)
         if not alert:

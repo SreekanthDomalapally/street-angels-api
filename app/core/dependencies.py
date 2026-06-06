@@ -32,6 +32,8 @@ async def get_current_user(
     user = await UserRepository(db).get_by_id(user_id)
     if not user:
         raise UnauthorizedError()
+    if user.suspended:
+        raise ForbiddenError("Account suspended")
     return user
 
 

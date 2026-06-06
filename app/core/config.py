@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,8 +70,20 @@ class Settings(BaseSettings):
     stripe_donation_cancel_url: str = "https://youhooalert.com/donate/cancel"
 
     alert_rate_limit: str = "5/minute"
+    auth_rate_limit: str = "10/minute"
+    enable_legacy_api: bool = Field(default=False, alias="ENABLE_LEGACY_API")
     location_min_update_seconds: float = 5.0
     location_max_accuracy_meters: float = 500.0
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        if self.is_production:
+            unsafe = {"", "change-me-in-production", "changeme", "secret"}
+            if self.jwt_secret_key.lower() in unsafe or len(self.jwt_secret_key) < 32:
+                raise ValueError(
+                    "JWT_SECRET_KEY must be a random string of at least 32 characters in production"
+                )
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:
