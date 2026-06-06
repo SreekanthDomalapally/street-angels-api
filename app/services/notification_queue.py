@@ -26,10 +26,17 @@ class NotificationQueue:
             self._redis = None
 
     async def enqueue(self, payload: dict[str, Any]) -> None:
-        await self.connect()
-        assert self._redis is not None
-        await self._redis.rpush(QUEUE_KEY, json.dumps(payload))
-        logger.info("notification_enqueued", extra={"type": payload.get("type")})
+        try:
+            await self.connect()
+            assert self._redis is not None
+            await self._redis.rpush(QUEUE_KEY, json.dumps(payload))
+            logger.info("notification_enqueued", extra={"type": payload.get("type")})
+        except Exception as exc:
+            # Alerts must succeed even when Redis/FCM is unavailable (e.g. Railway without Redis).
+            logger.warning(
+                "notification_enqueue_skipped",
+                extra={"type": payload.get("type"), "error": str(exc)},
+            )
 
     async def enqueue_alert_created(
         self,

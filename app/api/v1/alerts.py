@@ -17,6 +17,7 @@ from app.schemas import (
     AlertResponseRequest,
     LocationUpdateRequest,
 )
+from app.repositories.alert_repository import AlertRepository
 from app.services.alert_service import AlertService
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -30,7 +31,8 @@ async def create_alert(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AlertOut:
-    alert = await AlertService(db).create(user, body)
+    created = await AlertService(db).create(user, body)
+    alert = await AlertRepository(db).get_by_id(created.id) or created
     return AlertOut.model_validate(alert)
 
 

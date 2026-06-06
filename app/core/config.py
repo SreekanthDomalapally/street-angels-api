@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     debug: bool = False
     api_prefix: str = "/api/v1"
 
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Use "*" on Railway for mobile + Expo web; or comma-separated origins.
+    cors_origins: str = "*"
     admin_emails: str = ""
 
     database_url: str | None = Field(
