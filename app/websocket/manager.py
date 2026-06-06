@@ -9,7 +9,6 @@ from starlette.websockets import WebSocketDisconnect
 from app.core.logging import get_logger
 from app.core.security import decode_token
 from app.repositories.user_repository import UserRepository
-from app.services.alert_service import AlertService
 
 logger = get_logger(__name__)
 
@@ -82,6 +81,8 @@ async def websocket_endpoint(
     if not user or user.suspended:
         await websocket.close(code=4401)
         return
+
+    from app.services.alert_service import AlertService
 
     try:
         await AlertService(db).require_alert_access(user, alert_uuid)
