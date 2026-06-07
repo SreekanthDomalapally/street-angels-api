@@ -98,6 +98,14 @@ class GroupMemberResponse(BaseModel):
     role: str
 
 
+class GroupPendingInviteResponse(BaseModel):
+    id: UUID
+    invitee_email: str
+    inviter_name: str
+    status: str
+    created_at: datetime
+
+
 class GroupDetailResponse(GroupResponse):
     member_count: int
     members: list[GroupMemberResponse]
@@ -163,14 +171,6 @@ class GroupInviteListItemResponse(BaseModel):
     group_name: str
     inviter_name: str
     invitee_email: str
-    status: str
-    created_at: datetime
-
-
-class GroupPendingInviteResponse(BaseModel):
-    id: UUID
-    invitee_email: str
-    inviter_name: str
     status: str
     created_at: datetime
 
