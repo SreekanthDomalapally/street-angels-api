@@ -9,8 +9,10 @@ from app.db.session import get_db
 from app.models import User
 from app.schemas import (
     GroupCreateRequest,
+    GroupDetailResponse,
     GroupInviteRequest,
     GroupInviteResponse,
+    GroupListItemResponse,
     GroupMemberAddRequest,
     GroupResponse,
 )
@@ -28,12 +30,21 @@ async def create_group(
     return await GroupService(db).create(user, body)
 
 
-@router.get("", response_model=list[GroupResponse])
+@router.get("", response_model=list[GroupListItemResponse])
 async def list_groups(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> list[GroupResponse]:
+) -> list[GroupListItemResponse]:
     return await GroupService(db).list_for_user(user.id)
+
+
+@router.get("/{group_id}", response_model=GroupDetailResponse)
+async def get_group(
+    group_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> GroupDetailResponse:
+    return await GroupService(db).get_detail(user, group_id)
 
 
 @router.post("/{group_id}/members", status_code=204)

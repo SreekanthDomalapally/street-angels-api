@@ -7,7 +7,14 @@ from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.models import AuditLog, Group, GroupInvite, GroupMember, User
 from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas import GroupCreateRequest, GroupInviteRequest, GroupMemberAddRequest
+from app.schemas import (
+    GroupCreateRequest,
+    GroupDetailResponse,
+    GroupInviteRequest,
+    GroupListItemResponse,
+    GroupMemberAddRequest,
+    GroupMemberResponse,
+)
 
 
 class GroupService:
@@ -31,8 +38,52 @@ class GroupService:
         await self._audit(user.id, "group.create", str(group.id))
         return group
 
-    async def list_for_user(self, user_id: UUID) -> list[Group]:
-        return await self.groups.list_for_user(user_id)
+    async def list_for_user(self, user_id: UUID) -> list[GroupListItemResponse]:
+        groups = await self.groups.list_for_user(user_id)
+        items: list[GroupListItemResponse] = []
+        for group in groups:
+            count = await self.groups.member_count(group.id)
+            items.append(
+                GroupListItemResponse(
+                    id=group.id,
+                    name=group.name,
+                    description=group.description,
+                    is_temporary=group.is_temporary,
+                    expires_at=group.expires_at,
+                    created_by=group.created_by,
+                    created_at=group.created_at,
+                    member_count=count,
+                )
+            )
+        return items
+
+    async def get_detail(self, user: User, group_id: UUID) -> GroupDetailResponse:
+        if not await self.groups.is_member(group_id, user.id):
+            raise ForbiddenError("You are not a member of this group")
+        group = await self.groups.get_by_id(group_id)
+        if not group:
+            raise NotFoundError("Group not found")
+        members = [
+            GroupMemberResponse(
+                user_id=member.user_id,
+                full_name=member.user.full_name,
+                email=member.user.email,
+                role=member.role,
+            )
+            for member in group.members
+            if member.user is not None
+        ]
+        return GroupDetailResponse(
+            id=group.id,
+            name=group.name,
+            description=group.description,
+            is_temporary=group.is_temporary,
+            expires_at=group.expires_at,
+            created_by=group.created_by,
+            created_at=group.created_at,
+            member_count=len(members),
+            members=members,
+        )
 
     async def add_member(
         self, actor: User, group_id: UUID, body: GroupMemberAddRequest

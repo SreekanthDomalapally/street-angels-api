@@ -7,7 +7,7 @@ from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models import User
 from app.repositories.user_repository import UserRepository
-from app.schemas import UserResponse, UserUpdateRequest
+from app.schemas import UserLookupMatch, UserLookupRequest, UserLookupResponse, UserResponse, UserUpdateRequest
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -15,6 +15,22 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/me", response_model=UserResponse)
 async def get_profile(user: Annotated[User, Depends(get_current_user)]) -> User:
     return user
+
+
+@router.post("/lookup", response_model=UserLookupResponse)
+async def lookup_users(
+    body: UserLookupRequest,
+    _user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserLookupResponse:
+    """Return which contact emails already have a YouHoo Alert account."""
+    users = await UserRepository(db).list_by_emails([str(email) for email in body.emails])
+    return UserLookupResponse(
+        matches=[
+            UserLookupMatch(email=user.email, user_id=user.id, full_name=user.full_name)
+            for user in users
+        ]
+    )
 
 
 @router.patch("/me", response_model=UserResponse)

@@ -17,6 +17,13 @@ class UserRepository:
         result = await self.db.execute(select(User).where(User.email == email.lower()))
         return result.scalar_one_or_none()
 
+    async def list_by_emails(self, emails: list[str]) -> list[User]:
+        normalized = sorted({email.strip().lower() for email in emails if email.strip()})
+        if not normalized:
+            return []
+        result = await self.db.execute(select(User).where(User.email.in_(normalized)))
+        return list(result.scalars().all())
+
     async def get_by_google_sub(self, google_sub: str) -> User | None:
         result = await self.db.execute(select(User).where(User.google_sub == google_sub))
         return result.scalar_one_or_none()

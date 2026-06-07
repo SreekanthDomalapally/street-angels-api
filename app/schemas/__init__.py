@@ -91,6 +91,36 @@ class GroupResponse(BaseModel):
     created_at: datetime
 
 
+class GroupMemberResponse(BaseModel):
+    user_id: UUID
+    full_name: str
+    email: str
+    role: str
+
+
+class GroupDetailResponse(GroupResponse):
+    member_count: int
+    members: list[GroupMemberResponse]
+
+
+class GroupListItemResponse(GroupResponse):
+    member_count: int
+
+
+class UserLookupRequest(BaseModel):
+    emails: list[EmailStr] = Field(min_length=1, max_length=100)
+
+
+class UserLookupMatch(BaseModel):
+    email: str
+    user_id: UUID
+    full_name: str
+
+
+class UserLookupResponse(BaseModel):
+    matches: list[UserLookupMatch]
+
+
 class GroupInviteResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

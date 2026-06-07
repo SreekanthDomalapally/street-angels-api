@@ -13,9 +13,17 @@ class GroupRepository:
 
     async def get_by_id(self, group_id: UUID) -> Group | None:
         result = await self.db.execute(
-            select(Group).options(selectinload(Group.members)).where(Group.id == group_id)
+            select(Group)
+            .options(selectinload(Group.members).selectinload(GroupMember.user))
+            .where(Group.id == group_id)
         )
         return result.scalar_one_or_none()
+
+    async def member_count(self, group_id: UUID) -> int:
+        result = await self.db.execute(
+            select(GroupMember.id).where(GroupMember.group_id == group_id)
+        )
+        return len(result.scalars().all())
 
     async def list_for_user(self, user_id: UUID) -> list[Group]:
         result = await self.db.execute(
