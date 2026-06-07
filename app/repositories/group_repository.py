@@ -34,6 +34,15 @@ class GroupRepository:
         )
         return list(result.scalars().unique().all())
 
+    async def list_memberships_for_user(self, user_id: UUID) -> list[GroupMember]:
+        result = await self.db.execute(
+            select(GroupMember)
+            .options(selectinload(GroupMember.group))
+            .where(GroupMember.user_id == user_id)
+            .order_by(GroupMember.joined_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def create(self, group: Group) -> Group:
         self.db.add(group)
         await self.db.flush()
@@ -70,3 +79,52 @@ class GroupRepository:
         await self.db.flush()
         await self.db.refresh(invite)
         return invite
+
+    async def get_member(self, group_id: UUID, user_id: UUID) -> GroupMember | None:
+        result = await self.db.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group_id, GroupMember.user_id == user_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_admin_group_ids_for_user(self, user_id: UUID) -> list[UUID]:
+        result = await self.db.execute(
+            select(GroupMember.group_id).where(
+                GroupMember.user_id == user_id,
+                GroupMember.role.in_(("owner", "admin")),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_members_across_user_groups(self, user_id: UUID) -> list[GroupMember]:
+        user_group_ids = select(GroupMember.group_id).where(GroupMember.user_id == user_id)
+        result = await self.db.execute(
+            select(GroupMember)
+            .options(selectinload(GroupMember.user))
+            .where(GroupMember.group_id.in_(user_group_ids))
+        )
+        return list(result.scalars().all())
+
+    async def list_pending_invites_for_admin_groups(self, user_id: UUID) -> list[GroupInvite]:
+        admin_group_ids = select(GroupMember.group_id).where(
+            GroupMember.user_id == user_id,
+            GroupMember.role.in_(("owner", "admin")),
+        )
+        result = await self.db.execute(
+            select(GroupInvite).where(
+                GroupInvite.group_id.in_(admin_group_ids),
+                GroupInvite.status == "pending",
+            )
+        )
+        return list(result.scalars().all())
+
+    async def get_pending_invite(self, group_id: UUID, email: str) -> GroupInvite | None:
+        result = await self.db.execute(
+            select(GroupInvite).where(
+                GroupInvite.group_id == group_id,
+                GroupInvite.invitee_email == email.lower(),
+                GroupInvite.status == "pending",
+            )
+        )
+        return result.scalar_one_or_none()

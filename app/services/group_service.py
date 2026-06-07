@@ -39,9 +39,12 @@ class GroupService:
         return group
 
     async def list_for_user(self, user_id: UUID) -> list[GroupListItemResponse]:
-        groups = await self.groups.list_for_user(user_id)
+        memberships = await self.groups.list_memberships_for_user(user_id)
         items: list[GroupListItemResponse] = []
-        for group in groups:
+        for membership in memberships:
+            group = membership.group
+            if group is None:
+                continue
             count = await self.groups.member_count(group.id)
             items.append(
                 GroupListItemResponse(
@@ -53,6 +56,7 @@ class GroupService:
                     created_by=group.created_by,
                     created_at=group.created_at,
                     member_count=count,
+                    my_role=membership.role,
                 )
             )
         return items

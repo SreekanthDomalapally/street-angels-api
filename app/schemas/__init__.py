@@ -105,6 +105,7 @@ class GroupDetailResponse(GroupResponse):
 
 class GroupListItemResponse(GroupResponse):
     member_count: int
+    my_role: str | None = None
 
 
 class UserLookupRequest(BaseModel):
@@ -119,6 +120,28 @@ class UserLookupMatch(BaseModel):
 
 class UserLookupResponse(BaseModel):
     matches: list[UserLookupMatch]
+
+
+class ContactDirectoryItem(BaseModel):
+    user_id: UUID | None = None
+    display_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    group_ids: list[UUID]
+    status: str = Field(description="member or invited")
+
+
+class ContactDirectoryResponse(BaseModel):
+    contacts: list[ContactDirectoryItem]
+
+
+class ContactGroupsUpdateRequest(BaseModel):
+    group_ids: list[UUID] = Field(default_factory=list)
+
+
+class ContactInviteGroupsRequest(BaseModel):
+    email: EmailStr
+    group_ids: list[UUID] = Field(min_length=1)
 
 
 class GroupInviteResponse(BaseModel):
