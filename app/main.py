@@ -104,3 +104,17 @@ async def validation_exception_handler(
         status_code=422,
         content={"error": "Validation failed", "code": "validation_error", "details": exc.errors()},
     )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    import logging
+
+    logging.getLogger(__name__).exception("Unhandled API error")
+    message = "Internal server error"
+    if not settings.is_production:
+        message = f"{message}: {exc}"
+    return JSONResponse(
+        status_code=500,
+        content={"error": message, "code": "internal_error"},
+    )
