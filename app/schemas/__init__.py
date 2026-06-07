@@ -101,6 +101,7 @@ class GroupMemberResponse(BaseModel):
 class GroupDetailResponse(GroupResponse):
     member_count: int
     members: list[GroupMemberResponse]
+    pending_invites: list[GroupPendingInviteResponse] = Field(default_factory=list)
 
 
 class GroupListItemResponse(GroupResponse):
@@ -154,6 +155,24 @@ class GroupInviteResponse(BaseModel):
     status: str
     created_at: datetime
     expires_at: datetime | None
+
+
+class GroupInviteListItemResponse(BaseModel):
+    id: UUID
+    group_id: UUID
+    group_name: str
+    inviter_name: str
+    invitee_email: str
+    status: str
+    created_at: datetime
+
+
+class GroupPendingInviteResponse(BaseModel):
+    id: UUID
+    invitee_email: str
+    inviter_name: str
+    status: str
+    created_at: datetime
 
 
 class AlertCreateRequest(BaseModel):

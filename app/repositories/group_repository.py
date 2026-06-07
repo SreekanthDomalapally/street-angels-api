@@ -128,3 +128,35 @@ class GroupRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_invite_by_id(self, invite_id: UUID) -> GroupInvite | None:
+        result = await self.db.execute(
+            select(GroupInvite)
+            .options(selectinload(GroupInvite.group), selectinload(GroupInvite.inviter))
+            .where(GroupInvite.id == invite_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_pending_invites_for_email(self, email: str) -> list[GroupInvite]:
+        result = await self.db.execute(
+            select(GroupInvite)
+            .options(selectinload(GroupInvite.group), selectinload(GroupInvite.inviter))
+            .where(
+                GroupInvite.invitee_email == email.lower(),
+                GroupInvite.status == "pending",
+            )
+            .order_by(GroupInvite.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_pending_invites_for_group(self, group_id: UUID) -> list[GroupInvite]:
+        result = await self.db.execute(
+            select(GroupInvite)
+            .options(selectinload(GroupInvite.inviter))
+            .where(
+                GroupInvite.group_id == group_id,
+                GroupInvite.status == "pending",
+            )
+            .order_by(GroupInvite.created_at.desc())
+        )
+        return list(result.scalars().all())

@@ -10,6 +10,7 @@ from app.models import User
 from app.schemas import (
     GroupCreateRequest,
     GroupDetailResponse,
+    GroupInviteListItemResponse,
     GroupInviteRequest,
     GroupInviteResponse,
     GroupListItemResponse,
@@ -36,6 +37,32 @@ async def list_groups(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[GroupListItemResponse]:
     return await GroupService(db).list_for_user(user.id)
+
+
+@router.get("/invites/mine", response_model=list[GroupInviteListItemResponse])
+async def list_my_group_invites(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[GroupInviteListItemResponse]:
+    return await GroupService(db).list_my_pending_invites(user)
+
+
+@router.post("/invites/{invite_id}/accept", status_code=status.HTTP_204_NO_CONTENT)
+async def accept_group_invite(
+    invite_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    await GroupService(db).accept_invite(user, invite_id)
+
+
+@router.post("/invites/{invite_id}/decline", status_code=status.HTTP_204_NO_CONTENT)
+async def decline_group_invite(
+    invite_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    await GroupService(db).decline_invite(user, invite_id)
 
 
 @router.get("/{group_id}", response_model=GroupDetailResponse)

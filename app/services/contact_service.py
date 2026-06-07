@@ -42,6 +42,23 @@ class ContactService:
             email = invite.invitee_email.lower()
             matched = await self.users.get_by_email(email)
             if matched:
+                if await self.groups.is_member(invite.group_id, matched.id):
+                    continue
+                entry = by_user.get(matched.id)
+                if entry is None:
+                    entry = ContactDirectoryItem(
+                        user_id=matched.id,
+                        display_name=matched.full_name,
+                        email=matched.email,
+                        phone=matched.phone_number,
+                        group_ids=[],
+                        status="invited",
+                    )
+                    by_user[matched.id] = entry
+                elif entry.status != "member":
+                    entry.status = "invited"
+                if invite.group_id not in entry.group_ids:
+                    entry.group_ids.append(invite.group_id)
                 continue
             entry = by_email.get(email)
             if entry is None:
@@ -82,14 +99,21 @@ class ContactService:
         if unknown:
             raise ForbiddenError("You can only assign contacts to groups you manage")
 
+        target_email = target.email.lower()
         for group_id in admin_group_ids:
             member = await self.groups.get_member(group_id, target_user_id)
             should_member = group_id in requested
             if should_member and member is None:
-                await self.groups.add_member(
-                    GroupMember(group_id=group_id, user_id=target_user_id, role="member")
+                if await self.groups.get_pending_invite(group_id, target_email):
+                    continue
+                await self.groups.create_invite(
+                    GroupInvite(
+                        group_id=group_id,
+                        inviter_id=actor.id,
+                        invitee_email=target_email,
+                    )
                 )
-                await self._audit(actor.id, "contact.add_to_group", str(group_id))
+                await self._audit(actor.id, "contact.invite", str(group_id))
             elif not should_member and member is not None:
                 if member.role == "owner":
                     continue
@@ -110,18 +134,8 @@ class ContactService:
 
         existing_user = await self.users.get_by_email(normalized)
         for group_id in group_ids:
-            if existing_user:
-                if not await self.groups.is_member(group_id, existing_user.id):
-                    await self.groups.add_member(
-                        GroupMember(
-                            group_id=group_id,
-                            user_id=existing_user.id,
-                            role="member",
-                        )
-                    )
-                    await self._audit(actor.id, "contact.add_to_group", str(group_id))
+            if existing_user and await self.groups.is_member(group_id, existing_user.id):
                 continue
-
             if await self.groups.get_pending_invite(group_id, normalized):
                 continue
 

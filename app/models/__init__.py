@@ -117,6 +117,7 @@ class GroupInvite(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     group: Mapped[Group] = relationship(back_populates="invites")
+    inviter: Mapped[User] = relationship()
 
 
 class Alert(Base):

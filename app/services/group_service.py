@@ -10,10 +10,12 @@ from app.repositories.user_repository import UserRepository
 from app.schemas import (
     GroupCreateRequest,
     GroupDetailResponse,
+    GroupInviteListItemResponse,
     GroupInviteRequest,
     GroupListItemResponse,
     GroupMemberAddRequest,
     GroupMemberResponse,
+    GroupPendingInviteResponse,
 )
 
 
@@ -77,6 +79,20 @@ class GroupService:
             for member in group.members
             if member.user is not None
         ]
+        pending_invites: list[GroupPendingInviteResponse] = []
+        membership = next((m for m in group.members if m.user_id == user.id), None)
+        if membership and membership.role in ("owner", "admin"):
+            invites = await self.groups.list_pending_invites_for_group(group_id)
+            pending_invites = [
+                GroupPendingInviteResponse(
+                    id=invite.id,
+                    invitee_email=invite.invitee_email,
+                    inviter_name=invite.inviter.full_name if invite.inviter else "Someone",
+                    status=invite.status,
+                    created_at=invite.created_at,
+                )
+                for invite in invites
+            ]
         return GroupDetailResponse(
             id=group.id,
             name=group.name,
@@ -87,6 +103,7 @@ class GroupService:
             created_at=group.created_at,
             member_count=len(members),
             members=members,
+            pending_invites=pending_invites,
         )
 
     async def add_member(
@@ -113,14 +130,61 @@ class GroupService:
 
     async def invite(self, actor: User, group_id: UUID, body: GroupInviteRequest) -> GroupInvite:
         await self._require_admin(actor, group_id)
+        normalized = body.invitee_email.lower()
+        existing_user = await self.users.get_by_email(normalized)
+        if existing_user and await self.groups.is_member(group_id, existing_user.id):
+            raise ValidationError("User is already a member of this group")
+        if await self.groups.get_pending_invite(group_id, normalized):
+            raise ValidationError("An invite is already pending for this email")
         invite = GroupInvite(
             group_id=group_id,
             inviter_id=actor.id,
-            invitee_email=body.invitee_email.lower(),
+            invitee_email=normalized,
         )
         await self.groups.create_invite(invite)
         await self._audit(actor.id, "group.invite", str(group_id))
         return invite
+
+    async def list_my_pending_invites(self, user: User) -> list[GroupInviteListItemResponse]:
+        invites = await self.groups.list_pending_invites_for_email(user.email)
+        return [
+            GroupInviteListItemResponse(
+                id=invite.id,
+                group_id=invite.group_id,
+                group_name=invite.group.name if invite.group else "Trusted circle",
+                inviter_name=invite.inviter.full_name if invite.inviter else "Someone",
+                invitee_email=invite.invitee_email,
+                status=invite.status,
+                created_at=invite.created_at,
+            )
+            for invite in invites
+        ]
+
+    async def accept_invite(self, user: User, invite_id: UUID) -> None:
+        invite = await self.groups.get_invite_by_id(invite_id)
+        if not invite:
+            raise NotFoundError("Invite not found")
+        if invite.invitee_email.lower() != user.email.lower():
+            raise ForbiddenError("This invite is not for your account")
+        if invite.status != "pending":
+            raise ValidationError("Invite is no longer pending")
+        if not await self.groups.is_member(invite.group_id, user.id):
+            await self.groups.add_member(
+                GroupMember(group_id=invite.group_id, user_id=user.id, role="member")
+            )
+        invite.status = "accepted"
+        await self._audit(user.id, "group.invite.accept", str(invite.group_id))
+
+    async def decline_invite(self, user: User, invite_id: UUID) -> None:
+        invite = await self.groups.get_invite_by_id(invite_id)
+        if not invite:
+            raise NotFoundError("Invite not found")
+        if invite.invitee_email.lower() != user.email.lower():
+            raise ForbiddenError("This invite is not for your account")
+        if invite.status != "pending":
+            raise ValidationError("Invite is no longer pending")
+        invite.status = "declined"
+        await self._audit(user.id, "group.invite.decline", str(invite.group_id))
 
     async def _require_admin(self, user: User, group_id: UUID) -> Group:
         group = await self.groups.get_by_id(group_id)
