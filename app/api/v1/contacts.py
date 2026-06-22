@@ -11,10 +11,35 @@ from app.schemas import (
     ContactDirectoryResponse,
     ContactGroupsUpdateRequest,
     ContactInviteGroupsRequest,
+    ContactMatchRequest,
+    ContactMatchResponse,
+    TrustedContactAddRequest,
 )
 from app.services.contact_service import ContactService
+from app.services.identity_service import IdentityService
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
+
+
+@router.post("/match", response_model=ContactMatchResponse)
+async def match_contacts(
+    body: ContactMatchRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ContactMatchResponse:
+    region = body.country_code or "IE"
+    payload = [{"phone": c.phone, "display_name": c.display_name} for c in body.contacts]
+    result = await IdentityService(db).match_contacts(user, payload, region)
+    return ContactMatchResponse(**result)
+
+
+@router.post("/add", status_code=status.HTTP_204_NO_CONTENT)
+async def add_trusted_contact(
+    body: TrustedContactAddRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    await IdentityService(db).add_trusted_contact(user, body.contact_user_id, body.display_name)
 
 
 @router.get("/directory", response_model=ContactDirectoryResponse)

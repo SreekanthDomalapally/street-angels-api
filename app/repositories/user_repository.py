@@ -28,6 +28,28 @@ class UserRepository:
         result = await self.db.execute(select(User).where(User.google_sub == google_sub))
         return result.scalar_one_or_none()
 
+    async def get_by_firebase_uid(self, firebase_uid: str) -> User | None:
+        result = await self.db.execute(select(User).where(User.firebase_uid == firebase_uid))
+        return result.scalar_one_or_none()
+
+    async def get_by_phone(self, phone_e164: str) -> User | None:
+        result = await self.db.execute(
+            select(User).where(User.phone_number == phone_e164, User.phone_verified.is_(True))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_phones(self, phones: list[str]) -> list[User]:
+        normalized = sorted({phone.strip() for phone in phones if phone.strip()})
+        if not normalized:
+            return []
+        result = await self.db.execute(
+            select(User).where(
+                User.phone_number.in_(normalized),
+                User.phone_verified.is_(True),
+            )
+        )
+        return list(result.scalars().all())
+
     async def create(self, user: User) -> User:
         self.db.add(user)
         await self.db.flush()

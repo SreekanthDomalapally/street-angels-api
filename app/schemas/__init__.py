@@ -44,6 +44,7 @@ class UserResponse(BaseModel):
     full_name: str
     email: str
     phone_number: str | None
+    phone_verified: bool = False
     profile_photo: str | None
     is_verified: bool
     is_admin: bool
@@ -52,6 +53,99 @@ class UserResponse(BaseModel):
     notification_preferences: dict
     created_at: datetime
     updated_at: datetime
+
+
+class OnboardingStatus(BaseModel):
+    needs_phone_verification: bool
+    needs_contacts_permission: bool
+    onboarding_complete: bool
+
+
+class FirebaseLoginRequest(BaseModel):
+    firebase_id_token: str = Field(min_length=10)
+
+
+class FirebaseLoginResponse(TokenPair):
+    user: UserResponse
+    onboarding: OnboardingStatus
+
+
+class PhoneStartRequest(BaseModel):
+    phone_number: str = Field(min_length=6, max_length=32)
+    country_code: str | None = Field(default="IE", max_length=8)
+
+
+class PhoneStartResponse(BaseModel):
+    session_id: UUID
+    dev_otp: str | None = Field(default=None, description="Only returned in development")
+
+
+class PhoneVerifyRequest(BaseModel):
+    phone_number: str = Field(min_length=6, max_length=32)
+    otp: str = Field(min_length=4, max_length=8)
+    country_code: str | None = Field(default="IE", max_length=8)
+
+
+class PhoneFirebaseVerifyRequest(BaseModel):
+    firebase_id_token: str = Field(min_length=10)
+
+
+class ContactMatchEntry(BaseModel):
+    phone: str = Field(min_length=6, max_length=32)
+    display_name: str | None = Field(default=None, max_length=255)
+
+
+class ContactMatchRequest(BaseModel):
+    contacts: list[ContactMatchEntry] = Field(min_length=1, max_length=500)
+    country_code: str | None = Field(default="IE", max_length=8)
+
+
+class MatchedContactUser(BaseModel):
+    user_id: UUID
+    display_name: str
+    phone_last4: str
+    is_trusted: bool
+    contact_label: str | None = None
+
+
+class UnmatchedContact(BaseModel):
+    phone_last4: str
+    display_name: str | None = None
+
+
+class ContactMatchResponse(BaseModel):
+    matched_users: list[MatchedContactUser]
+    unmatched_contacts: list[UnmatchedContact]
+    existing_trusted_contact_ids: list[UUID]
+
+
+class TrustedContactAddRequest(BaseModel):
+    contact_user_id: UUID
+    display_name: str | None = Field(default=None, max_length=255)
+
+
+class PhoneInviteCreateRequest(BaseModel):
+    phone_number: str = Field(min_length=6, max_length=32)
+    display_name: str | None = Field(default=None, max_length=255)
+    group_id: UUID | None = None
+    country_code: str | None = Field(default="IE", max_length=8)
+
+
+class PhoneInviteResponse(BaseModel):
+    id: UUID
+    invite_code: str
+    invite_url: str
+    invited_phone_last4: str
+    status: str
+    expires_at: datetime | None
+
+
+class PhoneInviteDetailResponse(BaseModel):
+    invite_code: str
+    inviter_name: str
+    display_name: str | None
+    status: str
+    expires_at: datetime | None
 
 
 class UserUpdateRequest(BaseModel):
