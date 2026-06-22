@@ -10,6 +10,7 @@ from app.models import (
     GroupInvite,
     GroupMember,
     RefreshToken,
+    Trip,
     User,
 )
 
@@ -26,4 +27,5 @@ __all__ = [
     "AlertEvent",
     "AuditLog",
     "Donation",
+    "Trip",
 ]

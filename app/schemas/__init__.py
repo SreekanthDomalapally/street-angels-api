@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.common.enums import AlertStatus, AlertType, GroupMemberRole, ResponseType
+from app.common.enums import AlertStatus, AlertType, GroupMemberRole, ResponseType, TripStatus
 
 
 class TokenPair(BaseModel):
@@ -324,6 +324,41 @@ class DonationCheckoutRequest(BaseModel):
 class DonationCheckoutResponse(BaseModel):
     checkout_url: str
     session_id: str
+
+
+ALLOWED_TRIP_DURATIONS = {30, 60, 120, 240}
+
+
+class TripCreateRequest(BaseModel):
+    group_id: UUID
+    label: str | None = Field(default=None, max_length=255)
+    duration_minutes: int = Field(ge=30, le=480)
+    destination_latitude: float | None = Field(default=None, ge=-90, le=90)
+    destination_longitude: float | None = Field(default=None, ge=-180, le=180)
+    destination_label: str | None = Field(default=None, max_length=255)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracy_meters: float | None = Field(default=None, ge=0, le=10000)
+
+
+class TripOut(BaseModel):
+    id: UUID
+    group_id: UUID
+    group_name: str | None = None
+    label: str | None = None
+    status: TripStatus
+    destination_latitude: float | None = None
+    destination_longitude: float | None = None
+    destination_label: str | None = None
+    current_latitude: float | None = None
+    current_longitude: float | None = None
+    accuracy_meters: float | None = None
+    started_at: datetime
+    expires_at: datetime
+    arrived_at: datetime | None = None
+    ended_at: datetime | None = None
+    traveler_user_id: UUID
+    traveler_name: str | None = None
 
 
 class ErrorResponse(BaseModel):

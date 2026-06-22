@@ -38,3 +38,10 @@ class InviteStatus(str, enum.Enum):
 class AuthProvider(str, enum.Enum):
     EMAIL = "email"
     GOOGLE = "google"
+
+
+class TripStatus(str, enum.Enum):
+    ACTIVE = "active"
+    ARRIVED = "arrived"
+    ENDED = "ended"
+    EXPIRED = "expired"

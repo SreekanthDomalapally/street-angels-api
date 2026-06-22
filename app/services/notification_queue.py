@@ -80,6 +80,48 @@ class NotificationQueue:
             }
         )
 
+    async def enqueue_trip_started(
+        self,
+        *,
+        trip_id: str,
+        group_id: str,
+        traveler_name: str,
+        label: str,
+        recipient_user_ids: list[str],
+    ) -> None:
+        await self.enqueue(
+            {
+                "type": "trip_started",
+                "priority": "default",
+                "trip_id": trip_id,
+                "group_id": group_id,
+                "traveler_name": traveler_name,
+                "label": label,
+                "recipient_user_ids": recipient_user_ids,
+            }
+        )
+
+    async def enqueue_trip_arrived(
+        self,
+        *,
+        trip_id: str,
+        group_id: str,
+        traveler_name: str,
+        destination_label: str,
+        recipient_user_ids: list[str],
+    ) -> None:
+        await self.enqueue(
+            {
+                "type": "trip_arrived",
+                "priority": "high",
+                "trip_id": trip_id,
+                "group_id": group_id,
+                "traveler_name": traveler_name,
+                "destination_label": destination_label,
+                "recipient_user_ids": recipient_user_ids,
+            }
+        )
+
     async def dequeue(self, timeout: int = 5) -> dict[str, Any] | None:
         await self.connect()
         assert self._redis is not None

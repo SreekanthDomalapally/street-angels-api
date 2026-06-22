@@ -16,8 +16,10 @@ from app.schemas import (
     GroupListItemResponse,
     GroupMemberAddRequest,
     GroupResponse,
+    TripOut,
 )
 from app.services.group_service import GroupService
+from app.services.trip_service import TripService
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -103,3 +105,12 @@ async def invite_member(
 ) -> GroupInviteResponse:
     invite = await GroupService(db).invite(user, group_id, body)
     return GroupInviteResponse.model_validate(invite)
+
+
+@router.get("/{group_id}/trips/active", response_model=list[TripOut])
+async def list_group_active_trips(
+    group_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[TripOut]:
+    return await TripService(db).list_active_for_group(user, group_id)

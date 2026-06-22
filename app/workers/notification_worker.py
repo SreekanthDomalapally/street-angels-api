@@ -64,6 +64,32 @@ class NotificationWorker:
                     data={k: str(v) for k, v in payload.items()},
                     high_priority=True,
                 )
+            elif msg_type == "trip_started":
+                tokens = await self._tokens_for_users(payload.get("recipient_user_ids", []))
+                await self.fcm.send_to_tokens(
+                    tokens,
+                    title="Trip watch started",
+                    body=f"{payload.get('traveler_name')} started {payload.get('label')}",
+                    data={
+                        "type": "group_update",
+                        "trip_id": str(payload.get("trip_id", "")),
+                        "group_id": str(payload.get("group_id", "")),
+                    },
+                    high_priority=False,
+                )
+            elif msg_type == "trip_arrived":
+                tokens = await self._tokens_for_users(payload.get("recipient_user_ids", []))
+                await self.fcm.send_to_tokens(
+                    tokens,
+                    title="Arrived safely",
+                    body=f"{payload.get('traveler_name')} reached {payload.get('destination_label')}",
+                    data={
+                        "type": "check_in",
+                        "trip_id": str(payload.get("trip_id", "")),
+                        "group_id": str(payload.get("group_id", "")),
+                    },
+                    high_priority=True,
+                )
         except Exception as exc:
             await self.queue.move_to_dlq(payload, str(exc))
             logger.error("notification_process_failed", extra={"error": str(exc)})
