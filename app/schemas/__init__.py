@@ -103,6 +103,7 @@ class ContactMatchRequest(BaseModel):
 class MatchedContactUser(BaseModel):
     user_id: UUID
     display_name: str
+    email: str
     phone_last4: str
     is_trusted: bool
     contact_label: str | None = None

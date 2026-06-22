@@ -200,6 +200,7 @@ class IdentityService:
                     {
                         "user_id": matched_user.id,
                         "display_name": matched_user.full_name,
+                        "email": matched_user.email,
                         "phone_last4": e164[-4:],
                         "is_trusted": matched_user.id in trusted_ids,
                         "contact_label": display_name,
