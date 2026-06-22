@@ -38,6 +38,8 @@ class AuthService:
         return user, tokens
 
     async def login(self, body: LoginRequest) -> tuple[User, TokenPair]:
+        if not body.email or not body.password:
+            raise ValidationError("Email and password required")
         user = await self.users.get_by_email(body.email)
         if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")

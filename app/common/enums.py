@@ -38,6 +38,15 @@ class InviteStatus(str, enum.Enum):
 class AuthProvider(str, enum.Enum):
     EMAIL = "email"
     GOOGLE = "google"
+    PHONE = "phone"
+
+
+class UserAccountStatus(str, enum.Enum):
+    REGISTERED = "registered"
+    PROFILE_PENDING = "profile_pending"
+    PROFILE_COMPLETE = "profile_complete"
+    CONTACTS_PENDING = "contacts_pending"
+    ACTIVE = "active"
 
 
 class TripStatus(str, enum.Enum):

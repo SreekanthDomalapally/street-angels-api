@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.common.enums import AlertStatus, AlertType, GroupMemberRole, ResponseType, TripStatus
 
@@ -20,8 +20,17 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    firebase_id_token: str | None = Field(default=None, min_length=10)
+    email: EmailStr | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_credentials(self) -> "LoginRequest":
+        if self.firebase_id_token:
+            return self
+        if self.email and self.password:
+            return self
+        raise ValueError("Provide firebase_id_token or email and password")
 
 
 class GoogleAuthRequest(BaseModel):
@@ -42,9 +51,10 @@ class UserResponse(BaseModel):
 
     id: UUID
     full_name: str
-    email: str
+    email: str | None = None
     phone_number: str | None
     phone_verified: bool = False
+    account_status: str = "registered"
     profile_photo: str | None
     is_verified: bool
     is_admin: bool
@@ -53,12 +63,15 @@ class UserResponse(BaseModel):
     notification_preferences: dict
     created_at: datetime
     updated_at: datetime
+    last_active_at: datetime | None = None
 
 
 class OnboardingStatus(BaseModel):
     needs_phone_verification: bool
+    needs_profile_setup: bool = False
     needs_contacts_permission: bool
     onboarding_complete: bool
+    account_status: str = "registered"
 
 
 class FirebaseLoginRequest(BaseModel):
@@ -103,7 +116,7 @@ class ContactMatchRequest(BaseModel):
 class MatchedContactUser(BaseModel):
     user_id: UUID
     display_name: str
-    email: str
+    email: str | None = None
     phone_last4: str
     is_trusted: bool
     contact_label: str | None = None

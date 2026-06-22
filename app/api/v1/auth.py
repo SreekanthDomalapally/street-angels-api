@@ -1,4 +1,5 @@
 from typing import Annotated
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -101,15 +102,44 @@ async def register(
     return tokens
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post("/login", response_model=FirebaseLoginResponse)
 @limiter.limit(settings.auth_rate_limit)
 async def login(
     request: Request,
     body: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> TokenPair:
-    _, tokens = await AuthService(db).login(body)
-    return tokens
+) -> FirebaseLoginResponse:
+    if body.firebase_id_token:
+        user, tokens, onboarding = await IdentityService(db).firebase_login(body.firebase_id_token)
+    else:
+        user, tokens = await AuthService(db).login(body)  # type: ignore[arg-type]
+        user.last_login_at = datetime.now(UTC)
+        onboarding = build_onboarding_status(user)
+    return FirebaseLoginResponse(user=user, onboarding=onboarding, **tokens.model_dump())
+
+
+@router.post("/phone/login/start", response_model=PhoneStartResponse)
+@limiter.limit("5/minute")
+async def phone_login_start(
+    request: Request,
+    body: PhoneStartRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PhoneStartResponse:
+    session_id, dev_otp = await IdentityService(db).start_phone_login(body.phone_number, body.country_code)
+    return PhoneStartResponse(session_id=session_id, dev_otp=dev_otp)
+
+
+@router.post("/phone/login/verify", response_model=FirebaseLoginResponse)
+@limiter.limit("10/minute")
+async def phone_login_verify(
+    request: Request,
+    body: PhoneVerifyRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> FirebaseLoginResponse:
+    user, tokens, onboarding = await IdentityService(db).verify_phone_login(
+        body.phone_number, body.otp, body.country_code
+    )
+    return FirebaseLoginResponse(user=user, onboarding=onboarding, **tokens.model_dump())
 
 
 @router.post("/google", response_model=TokenPair)

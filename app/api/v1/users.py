@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models import User
+from app.common.enums import UserAccountStatus
 from app.repositories.user_repository import UserRepository
 from app.schemas import UserLookupMatch, UserLookupRequest, UserLookupResponse, UserResponse, UserUpdateRequest
 
@@ -41,6 +42,11 @@ async def update_profile(
 ) -> User:
     if body.full_name is not None:
         user.full_name = body.full_name.strip()
+        if user.account_status in {
+            UserAccountStatus.REGISTERED.value,
+            UserAccountStatus.PROFILE_PENDING.value,
+        }:
+            user.account_status = UserAccountStatus.PROFILE_COMPLETE.value
     if body.phone_number is not None:
         user.phone_number = body.phone_number
     if body.profile_photo is not None:

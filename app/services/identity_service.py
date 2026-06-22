@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.enums import UserAccountStatus
 from app.common.phone import normalize_phone_e164, sanitize_display_name
 from app.core.config import settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
@@ -15,11 +16,33 @@ from app.schemas import OnboardingStatus, TokenPair
 from app.services.firebase_auth_service import verify_firebase_id_token
 
 
+def _is_placeholder_name(name: str | None) -> bool:
+    if not name:
+        return True
+    stripped = name.strip()
+    return not stripped or stripped.startswith("User ")
+
+
 def build_onboarding_status(user: User) -> OnboardingStatus:
+    status = user.account_status or UserAccountStatus.REGISTERED.value
+    needs_profile = status in {
+        UserAccountStatus.REGISTERED.value,
+        UserAccountStatus.PROFILE_PENDING.value,
+    } or _is_placeholder_name(user.full_name)
+    needs_contacts = status in {
+        UserAccountStatus.REGISTERED.value,
+        UserAccountStatus.PROFILE_PENDING.value,
+        UserAccountStatus.PROFILE_COMPLETE.value,
+        UserAccountStatus.CONTACTS_PENDING.value,
+    }
+    onboarding_complete = status == UserAccountStatus.ACTIVE.value and user.phone_verified
+
     return OnboardingStatus(
         needs_phone_verification=not user.phone_verified,
-        needs_contacts_permission=not user.phone_verified,
-        onboarding_complete=user.phone_verified,
+        needs_profile_setup=needs_profile,
+        needs_contacts_permission=needs_contacts,
+        onboarding_complete=onboarding_complete,
+        account_status=status,
     )
 
 
@@ -31,47 +54,170 @@ class IdentityService:
     async def firebase_login(self, firebase_id_token: str) -> tuple[User, TokenPair, OnboardingStatus]:
         claims = verify_firebase_id_token(firebase_id_token)
         uid = claims.get("uid") or claims.get("sub")
-        email = (claims.get("email") or "").lower()
         if not uid:
             raise UnauthorizedError("Invalid Firebase token payload")
 
+        email = (claims.get("email") or "").lower() or None
+        firebase_phone = claims.get("phone_number")
+        e164 = normalize_phone_e164(firebase_phone) if firebase_phone else None
+
         user = await self.users.get_by_firebase_uid(uid)
+        if not user and e164:
+            user = await self.users.get_by_phone(e164)
         if not user and email:
             user = await self.users.get_by_email(email)
+
         if not user:
-            if not email:
-                raise ValidationError("Firebase account must include an email address")
-            user = User(
-                full_name=claims.get("name") or email.split("@")[0],
-                email=email,
-                firebase_uid=uid,
-                google_sub=uid,
-                is_verified=bool(claims.get("email_verified")),
-                profile_photo=claims.get("picture"),
-            )
+            if e164:
+                user = User(
+                    full_name=f"User {e164[-4:]}",
+                    email=email,
+                    firebase_uid=uid,
+                    phone_number=e164,
+                    phone_verified=True,
+                    is_verified=True,
+                    account_status=UserAccountStatus.REGISTERED.value,
+                    profile_photo=claims.get("picture"),
+                )
+            elif email:
+                user = User(
+                    full_name=claims.get("name") or email.split("@")[0],
+                    email=email,
+                    firebase_uid=uid,
+                    google_sub=uid,
+                    is_verified=bool(claims.get("email_verified")),
+                    profile_photo=claims.get("picture"),
+                    account_status=UserAccountStatus.PROFILE_PENDING.value,
+                )
+            else:
+                raise ValidationError("Firebase account must include a verified phone number")
             await self.users.create(user)
+            if e164:
+                await self._link_pending_invites(user, e164)
         else:
             user.firebase_uid = uid
-            if not user.google_sub:
-                user.google_sub = uid
-            if claims.get("name") and not user.full_name:
+            if claims.get("name") and _is_placeholder_name(user.full_name):
                 user.full_name = claims["name"]
             if claims.get("picture") and not user.profile_photo:
                 user.profile_photo = claims["picture"]
-            user.is_verified = bool(claims.get("email_verified", user.is_verified))
-            firebase_phone = claims.get("phone_number")
-            if firebase_phone and not user.phone_verified:
-                normalized = normalize_phone_e164(firebase_phone)
-                if normalized:
-                    user.phone_number = normalized
-                    user.phone_verified = True
+            if email and not user.email:
+                user.email = email
+            if e164:
+                existing = await self.users.get_by_phone(e164)
+                if existing and existing.id != user.id:
+                    raise ConflictError("This mobile number is already registered")
+                user.phone_number = e164
+                user.phone_verified = True
+                if user.account_status == UserAccountStatus.REGISTERED.value:
+                    pass
+                elif _is_placeholder_name(user.full_name):
+                    user.account_status = UserAccountStatus.PROFILE_PENDING.value
+            if email:
+                user.is_verified = bool(claims.get("email_verified", user.is_verified))
             await self.users.update(user)
+            if e164 and user.phone_verified:
+                await self._link_pending_invites(user, e164)
 
         if user.suspended:
             raise ForbiddenError("Account suspended")
 
-        user.last_login_at = datetime.now(UTC)
+        now = datetime.now(UTC)
+        user.last_login_at = now
+        user.last_active_at = now
         await self.users.update(user)
+        tokens = await self._issue_tokens(user)
+        return user, tokens, build_onboarding_status(user)
+
+    async def start_phone_login(
+        self, phone_number: str, country_code: str | None = None
+    ) -> tuple[uuid.UUID, str | None]:
+        region = (country_code or "IE").upper()
+        e164 = normalize_phone_e164(phone_number, region)
+        if not e164:
+            raise ValidationError("Enter a valid mobile number")
+
+        otp = f"{secrets.randbelow(900000) + 100000:06d}"
+        otp_hash = hash_password(otp)
+        expires_at = datetime.now(UTC) + timedelta(minutes=10)
+
+        await self.db.execute(
+            delete(PhoneOtpSession).where(
+                PhoneOtpSession.user_id.is_(None),
+                PhoneOtpSession.phone_number == e164,
+            )
+        )
+        session = PhoneOtpSession(
+            user_id=None,
+            phone_number=e164,
+            otp_hash=otp_hash,
+            expires_at=expires_at,
+        )
+        self.db.add(session)
+        await self.db.flush()
+
+        dev_hint = otp if settings.environment == "development" else None
+        return session.id, dev_hint
+
+    async def verify_phone_login(
+        self, phone_number: str, otp: str, country_code: str | None = None
+    ) -> tuple[User, TokenPair, OnboardingStatus]:
+        region = (country_code or "IE").upper()
+        e164 = normalize_phone_e164(phone_number, region)
+        if not e164:
+            raise ValidationError("Enter a valid mobile number")
+
+        result = await self.db.execute(
+            select(PhoneOtpSession)
+            .where(
+                PhoneOtpSession.user_id.is_(None),
+                PhoneOtpSession.phone_number == e164,
+            )
+            .order_by(PhoneOtpSession.created_at.desc())
+        )
+        session = result.scalars().first()
+        if not session:
+            raise ValidationError("Start phone verification first")
+        if session.expires_at < datetime.now(UTC):
+            raise ValidationError("Verification code expired. Request a new one.")
+        if session.attempts >= 5:
+            raise ValidationError("Too many attempts. Request a new code.")
+
+        session.attempts += 1
+        if not verify_password(otp.strip(), session.otp_hash):
+            raise ValidationError("Invalid verification code")
+
+        user = await self.users.get_by_phone(e164)
+        now = datetime.now(UTC)
+        if user:
+            user.last_login_at = now
+            user.last_active_at = now
+            user.country_code = region
+            await self.users.update(user)
+        else:
+            user = User(
+                full_name=f"User {e164[-4:]}",
+                email=None,
+                phone_number=e164,
+                phone_verified=True,
+                country_code=region,
+                is_verified=True,
+                account_status=UserAccountStatus.REGISTERED.value,
+                last_login_at=now,
+                last_active_at=now,
+            )
+            await self.users.create(user)
+            await self._link_pending_invites(user, e164)
+
+        await self.db.execute(
+            delete(PhoneOtpSession).where(
+                PhoneOtpSession.user_id.is_(None),
+                PhoneOtpSession.phone_number == e164,
+            )
+        )
+
+        if user.suspended:
+            raise ForbiddenError("Account suspended")
+
         tokens = await self._issue_tokens(user)
         return user, tokens, build_onboarding_status(user)
 
@@ -137,6 +283,8 @@ class IdentityService:
         user.phone_number = e164
         user.phone_verified = True
         user.country_code = region
+        if user.account_status == UserAccountStatus.REGISTERED.value:
+            user.account_status = UserAccountStatus.PROFILE_PENDING.value
         await self.users.update(user)
         await self._link_pending_invites(user, e164)
         await self.db.execute(delete(PhoneOtpSession).where(PhoneOtpSession.user_id == user.id))
@@ -161,6 +309,8 @@ class IdentityService:
 
         user.phone_number = e164
         user.phone_verified = True
+        if user.account_status == UserAccountStatus.REGISTERED.value:
+            user.account_status = UserAccountStatus.PROFILE_PENDING.value
         await self.users.update(user)
         await self._link_pending_invites(user, e164)
         return user
