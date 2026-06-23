@@ -8,10 +8,10 @@ from app.models import AuditLog, Group, GroupInvite, GroupMember, User
 from app.common.phone import normalize_phone_e164
 from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
+from app.common.group_invite_utils import invite_matches_user
 from app.services.group_invite_helpers import (
     ensure_group_invite_for_phone,
     ensure_group_invite_for_user,
-    invite_matches_user,
 )
 from app.schemas import (
     GroupCreateRequest,

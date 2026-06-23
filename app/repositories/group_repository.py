@@ -5,11 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import Group, GroupInvite, GroupMember, User
-from app.services.group_invite_helpers import invite_matches_user
-
-
-def phone_placeholder_email(e164: str) -> str:
-    return f"{e164.replace('+', '')}@phone.pending"
+from app.common.group_invite_utils import invite_matches_user
 
 
 class GroupRepository:

@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.phone import normalize_phone_e164
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.models import GroupInvite, GroupMember
-from app.repositories.group_repository import GroupRepository, phone_placeholder_email
+from app.common.group_invite_utils import phone_placeholder_email
+from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
 
 
@@ -82,15 +83,4 @@ async def ensure_group_invite_for_user(
     return await groups.create_invite(invite)
 
 
-def invite_matches_user(invite: GroupInvite, user) -> bool:
-    if invite.status != "pending":
-        return False
-    if user.phone_number and invite.invitee_phone and invite.invitee_phone == user.phone_number:
-        return True
-    if user.email and invite.invitee_email.lower() == user.email.lower():
-        if invite.invitee_email.endswith("@phone.pending"):
-            return False
-        return True
-    if user.phone_number and invite.invitee_email == phone_placeholder_email(user.phone_number):
-        return True
-    return False
+__all__ = ["ensure_group_invite_for_phone", "ensure_group_invite_for_user"]
