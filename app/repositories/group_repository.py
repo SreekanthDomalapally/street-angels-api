@@ -4,7 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Group, GroupInvite, GroupMember
+from app.models import Group, GroupInvite, GroupMember, User
+from app.services.group_invite_helpers import invite_matches_user
 
 
 def phone_placeholder_email(e164: str) -> str:
@@ -174,6 +175,16 @@ class GroupRepository:
             .order_by(GroupInvite.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def list_pending_invites_for_recipient(self, user: User) -> list[GroupInvite]:
+        """Return pending invites for this user using the same rules as accept/decline."""
+        result = await self.db.execute(
+            select(GroupInvite)
+            .options(selectinload(GroupInvite.group), selectinload(GroupInvite.inviter))
+            .where(GroupInvite.status == "pending")
+            .order_by(GroupInvite.created_at.desc())
+        )
+        return [invite for invite in result.scalars().all() if invite_matches_user(invite, user)]
 
     async def list_pending_invites_for_group(self, group_id: UUID) -> list[GroupInvite]:
         result = await self.db.execute(

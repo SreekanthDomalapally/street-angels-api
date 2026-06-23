@@ -53,7 +53,7 @@ async def ensure_group_invite_for_user(
     if await groups.is_member(group_id, target_user_id):
         raise ValidationError("User is already a member of this group")
 
-    if target.phone_verified and target.phone_number:
+    if target.phone_number:
         pending = await groups.get_pending_invite_by_phone(group_id, target.phone_number)
         if pending:
             return pending
@@ -67,7 +67,7 @@ async def ensure_group_invite_for_user(
         return await groups.create_invite(invite)
 
     if not target.email:
-        raise ValidationError("User has no email or verified phone for group invite")
+        raise ValidationError("User has no email or phone number for group invite")
 
     normalized = target.email.lower()
     pending = await groups.get_pending_invite(group_id, normalized)

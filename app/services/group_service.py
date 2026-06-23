@@ -178,8 +178,17 @@ class GroupService:
 
         normalized = body.invitee_email.lower()
         existing_user = await self.users.get_by_email(normalized)
-        if existing_user and await self.groups.is_member(group_id, existing_user.id):
-            raise ValidationError("User is already a member of this group")
+        if existing_user:
+            if await self.groups.is_member(group_id, existing_user.id):
+                raise ValidationError("User is already a member of this group")
+            invite = await ensure_group_invite_for_user(
+                self.db,
+                inviter_id=actor.id,
+                group_id=group_id,
+                target_user_id=existing_user.id,
+            )
+            await self._audit(actor.id, "group.invite", str(group_id))
+            return invite
         if await self.groups.get_pending_invite(group_id, normalized):
             raise ValidationError("An invite is already pending for this email")
         invite = GroupInvite(
@@ -192,18 +201,7 @@ class GroupService:
         return invite
 
     async def list_my_pending_invites(self, user: User) -> list[GroupInviteListItemResponse]:
-        seen: set[UUID] = set()
-        invites: list[GroupInvite] = []
-        if user.email:
-            for invite in await self.groups.list_pending_invites_for_email(user.email):
-                if invite.id not in seen:
-                    seen.add(invite.id)
-                    invites.append(invite)
-        if user.phone_number:
-            for invite in await self.groups.list_pending_invites_for_phone(user.phone_number):
-                if invite.id not in seen:
-                    seen.add(invite.id)
-                    invites.append(invite)
+        invites = await self.groups.list_pending_invites_for_recipient(user)
 
         return [
             GroupInviteListItemResponse(
