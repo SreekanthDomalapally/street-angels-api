@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
 from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
 from app.models import PhoneInvite, PhoneOtpSession, RefreshToken, TrustedContact, User
+from app.repositories.user_repository import UserRepository
+from app.schemas import OnboardingStatus, TokenPair
 from app.services.group_invite_helpers import ensure_group_invite_for_phone, ensure_group_invite_for_user
 from app.services.firebase_auth_service import verify_firebase_id_token
 
