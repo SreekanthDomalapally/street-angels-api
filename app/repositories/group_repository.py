@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -43,6 +43,18 @@ class GroupRepository:
             .order_by(GroupMember.joined_at.desc())
         )
         return list(result.scalars().all())
+
+    async def get_owned_by_name(self, owner_id: UUID, name: str) -> Group | None:
+        normalized = name.strip().lower()
+        if not normalized:
+            return None
+        result = await self.db.execute(
+            select(Group).where(
+                Group.created_by == owner_id,
+                func.lower(Group.name) == normalized,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def create(self, group: Group) -> Group:
         self.db.add(group)

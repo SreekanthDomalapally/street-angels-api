@@ -32,8 +32,15 @@ class GroupService:
         self.users = UserRepository(db)
 
     async def create(self, user: User, body: GroupCreateRequest) -> Group:
+        trimmed = body.name.strip()
+        existing = await self.groups.get_owned_by_name(user.id, trimmed)
+        if existing:
+            raise ValidationError(
+                f'You already have a circle named "{existing.name}". Open it to add people.'
+            )
+
         group = Group(
-            name=body.name.strip(),
+            name=trimmed,
             description=body.description,
             is_temporary=body.is_temporary,
             expires_at=body.expires_at,
