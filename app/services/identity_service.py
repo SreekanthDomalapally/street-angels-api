@@ -11,8 +11,7 @@ from app.core.config import settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
 from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
 from app.models import PhoneInvite, PhoneOtpSession, RefreshToken, TrustedContact, User
-from app.repositories.user_repository import UserRepository
-from app.schemas import OnboardingStatus, TokenPair
+from app.services.group_invite_helpers import ensure_group_invite_for_phone, ensure_group_invite_for_user
 from app.services.firebase_auth_service import verify_firebase_id_token
 
 
@@ -412,6 +411,16 @@ class IdentityService:
 
         existing_user = await self.users.get_by_phone(e164)
         if existing_user:
+            if group_id:
+                await ensure_group_invite_for_user(
+                    self.db,
+                    inviter_id=user.id,
+                    group_id=group_id,
+                    target_user_id=existing_user.id,
+                )
+                raise ValidationError(
+                    "This person is already on YouHoo Alert. A group invitation has been sent."
+                )
             await self.add_trusted_contact(user, existing_user.id, display_name)
             raise ValidationError(
                 "This person is already on YouHoo Alert. They have been added to your trusted contacts."
@@ -428,6 +437,15 @@ class IdentityService:
         )
         self.db.add(invite)
         await self.db.flush()
+
+        if group_id:
+            await ensure_group_invite_for_phone(
+                self.db,
+                inviter_id=user.id,
+                group_id=group_id,
+                phone_e164=e164,
+            )
+
         return invite
 
     async def get_invite_by_code(self, invite_code: str) -> PhoneInvite:
@@ -497,17 +515,13 @@ class IdentityService:
             )
         )
         for invite in result.scalars().all():
-            invite.status = "accepted"
-            invite.accepted_at = datetime.now(UTC)
-            self.db.add(
-                TrustedContact(
-                    owner_user_id=invite.inviter_user_id,
-                    contact_user_id=user.id,
-                    display_name=invite.display_name or user.full_name,
-                    status="accepted",
-                    source="invite",
+            if invite.group_id:
+                await ensure_group_invite_for_phone(
+                    self.db,
+                    inviter_id=invite.inviter_user_id,
+                    group_id=invite.group_id,
+                    phone_e164=e164,
                 )
-            )
 
     async def _issue_tokens(self, user: User) -> TokenPair:
         jti = uuid.uuid4().hex

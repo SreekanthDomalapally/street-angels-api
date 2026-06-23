@@ -66,4 +66,10 @@ async def assign_invite_groups(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
-    await ContactService(db).assign_invite_groups(user, body.email, list(body.group_ids))
+    await ContactService(db).assign_invite_groups(
+        user,
+        list(body.group_ids),
+        email=str(body.email) if body.email else None,
+        phone_number=body.phone_number,
+        country_code=body.country_code,
+    )

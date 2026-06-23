@@ -7,6 +7,10 @@ from sqlalchemy.orm import selectinload
 from app.models import Group, GroupInvite, GroupMember
 
 
+def phone_placeholder_email(e164: str) -> str:
+    return f"{e164.replace('+', '')}@phone.pending"
+
+
 class GroupRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -119,6 +123,16 @@ class GroupRepository:
         )
         return list(result.scalars().all())
 
+    async def get_pending_invite_by_phone(self, group_id: UUID, phone_e164: str) -> GroupInvite | None:
+        result = await self.db.execute(
+            select(GroupInvite).where(
+                GroupInvite.group_id == group_id,
+                GroupInvite.invitee_phone == phone_e164,
+                GroupInvite.status == "pending",
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_pending_invite(self, group_id: UUID, email: str) -> GroupInvite | None:
         result = await self.db.execute(
             select(GroupInvite).where(
@@ -136,6 +150,18 @@ class GroupRepository:
             .where(GroupInvite.id == invite_id)
         )
         return result.scalar_one_or_none()
+
+    async def list_pending_invites_for_phone(self, phone_e164: str) -> list[GroupInvite]:
+        result = await self.db.execute(
+            select(GroupInvite)
+            .options(selectinload(GroupInvite.group), selectinload(GroupInvite.inviter))
+            .where(
+                GroupInvite.invitee_phone == phone_e164,
+                GroupInvite.status == "pending",
+            )
+            .order_by(GroupInvite.created_at.desc())
+        )
+        return list(result.scalars().all())
 
     async def list_pending_invites_for_email(self, email: str) -> list[GroupInvite]:
         result = await self.db.execute(

@@ -5,8 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.enums import GroupMemberRole
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.models import AuditLog, Group, GroupInvite, GroupMember, User
+from app.common.phone import normalize_phone_e164
 from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
+from app.services.group_invite_helpers import (
+    ensure_group_invite_for_phone,
+    ensure_group_invite_for_user,
+    invite_matches_user,
+)
 from app.schemas import (
     GroupCreateRequest,
     GroupDetailResponse,
@@ -87,6 +93,7 @@ class GroupService:
                 GroupPendingInviteResponse(
                     id=invite.id,
                     invitee_email=invite.invitee_email,
+                    invitee_phone=invite.invitee_phone,
                     inviter_name=invite.inviter.full_name if invite.inviter else "Someone",
                     status=invite.status,
                     created_at=invite.created_at,
@@ -130,6 +137,45 @@ class GroupService:
 
     async def invite(self, actor: User, group_id: UUID, body: GroupInviteRequest) -> GroupInvite:
         await self._require_admin(actor, group_id)
+
+        if body.user_id:
+            invite = await ensure_group_invite_for_user(
+                self.db,
+                inviter_id=actor.id,
+                group_id=group_id,
+                target_user_id=body.user_id,
+            )
+            await self._audit(actor.id, "group.invite", str(group_id))
+            return invite
+
+        if body.invitee_phone:
+            region = (body.country_code or "IE").upper()
+            e164 = normalize_phone_e164(body.invitee_phone, region)
+            if not e164:
+                raise ValidationError("Enter a valid mobile number")
+            existing_user = await self.users.get_by_phone(e164)
+            if existing_user:
+                invite = await ensure_group_invite_for_user(
+                    self.db,
+                    inviter_id=actor.id,
+                    group_id=group_id,
+                    target_user_id=existing_user.id,
+                )
+            else:
+                invite = await ensure_group_invite_for_phone(
+                    self.db,
+                    inviter_id=actor.id,
+                    group_id=group_id,
+                    phone_e164=e164,
+                )
+                if invite is None:
+                    raise ValidationError("An invite is already pending for this number")
+            await self._audit(actor.id, "group.invite", str(group_id))
+            return invite
+
+        if not body.invitee_email:
+            raise ValidationError("Provide user_id, invitee_email, or invitee_phone")
+
         normalized = body.invitee_email.lower()
         existing_user = await self.users.get_by_email(normalized)
         if existing_user and await self.groups.is_member(group_id, existing_user.id):
@@ -146,7 +192,19 @@ class GroupService:
         return invite
 
     async def list_my_pending_invites(self, user: User) -> list[GroupInviteListItemResponse]:
-        invites = await self.groups.list_pending_invites_for_email(user.email)
+        seen: set[UUID] = set()
+        invites: list[GroupInvite] = []
+        if user.email:
+            for invite in await self.groups.list_pending_invites_for_email(user.email):
+                if invite.id not in seen:
+                    seen.add(invite.id)
+                    invites.append(invite)
+        if user.phone_number:
+            for invite in await self.groups.list_pending_invites_for_phone(user.phone_number):
+                if invite.id not in seen:
+                    seen.add(invite.id)
+                    invites.append(invite)
+
         return [
             GroupInviteListItemResponse(
                 id=invite.id,
@@ -154,6 +212,7 @@ class GroupService:
                 group_name=invite.group.name if invite.group else "Trusted circle",
                 inviter_name=invite.inviter.full_name if invite.inviter else "Someone",
                 invitee_email=invite.invitee_email,
+                invitee_phone=invite.invitee_phone,
                 status=invite.status,
                 created_at=invite.created_at,
             )
@@ -164,7 +223,7 @@ class GroupService:
         invite = await self.groups.get_invite_by_id(invite_id)
         if not invite:
             raise NotFoundError("Invite not found")
-        if invite.invitee_email.lower() != user.email.lower():
+        if not invite_matches_user(invite, user):
             raise ForbiddenError("This invite is not for your account")
         if invite.status != "pending":
             raise ValidationError("Invite is no longer pending")
@@ -179,7 +238,7 @@ class GroupService:
         invite = await self.groups.get_invite_by_id(invite_id)
         if not invite:
             raise NotFoundError("Invite not found")
-        if invite.invitee_email.lower() != user.email.lower():
+        if not invite_matches_user(invite, user):
             raise ForbiddenError("This invite is not for your account")
         if invite.status != "pending":
             raise ValidationError("Invite is no longer pending")

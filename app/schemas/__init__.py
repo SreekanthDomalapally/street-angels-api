@@ -184,7 +184,16 @@ class GroupMemberAddRequest(BaseModel):
 
 
 class GroupInviteRequest(BaseModel):
-    invitee_email: EmailStr
+    invitee_email: EmailStr | None = None
+    invitee_phone: str | None = Field(default=None, min_length=6, max_length=32)
+    user_id: UUID | None = None
+    country_code: str | None = Field(default="IE", max_length=8)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "GroupInviteRequest":
+        if self.user_id or self.invitee_email or self.invitee_phone:
+            return self
+        raise ValueError("Provide user_id, invitee_email, or invitee_phone")
 
 
 class GroupResponse(BaseModel):
@@ -202,13 +211,14 @@ class GroupResponse(BaseModel):
 class GroupMemberResponse(BaseModel):
     user_id: UUID
     full_name: str
-    email: str
+    email: str | None = None
     role: str
 
 
 class GroupPendingInviteResponse(BaseModel):
     id: UUID
     invitee_email: str
+    invitee_phone: str | None = None
     inviter_name: str
     status: str
     created_at: datetime
@@ -257,8 +267,16 @@ class ContactGroupsUpdateRequest(BaseModel):
 
 
 class ContactInviteGroupsRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone_number: str | None = Field(default=None, min_length=6, max_length=32)
+    country_code: str | None = Field(default="IE", max_length=8)
     group_ids: list[UUID] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "ContactInviteGroupsRequest":
+        if self.email or self.phone_number:
+            return self
+        raise ValueError("Provide email or phone_number")
 
 
 class GroupInviteResponse(BaseModel):
@@ -279,6 +297,7 @@ class GroupInviteListItemResponse(BaseModel):
     group_name: str
     inviter_name: str
     invitee_email: str
+    invitee_phone: str | None = None
     status: str
     created_at: datetime
 
