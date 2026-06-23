@@ -35,7 +35,7 @@ class DonationService:
                     "price_data": {
                         "currency": body.currency,
                         "unit_amount": body.amount_cents,
-                        "product_data": {"name": "youhooalert donation"},
+                        "product_data": {"name": "YouHoo Alert donation"},
                     },
                     "quantity": 1,
                 }

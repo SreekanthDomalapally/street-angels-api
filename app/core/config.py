@@ -15,7 +15,7 @@ def normalize_database_url(url: str) -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "youhooalert API"
+    app_name: str = "YouHoo Alert API"
     app_version: str = "1.0.0"
     environment: str = "development"
     debug: bool = False

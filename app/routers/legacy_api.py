@@ -1,4 +1,4 @@
-"""Session-cookie API used by street-angels-ui (prefix /api)."""
+"""Session-cookie API used by the legacy web UI (prefix /api)."""
 
 from fastapi import APIRouter
 

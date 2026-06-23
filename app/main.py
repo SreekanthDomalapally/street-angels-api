@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    description="Emergency coordination API — SOS alerts, live location, trusted groups",
+    description="YouHoo Alert — emergency coordination API for SOS alerts, live location, and trusted groups",
     version=settings.app_version,
     lifespan=lifespan,
     docs_url=None if settings.is_production else "/docs",
@@ -111,10 +111,10 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     import logging
 
     logging.getLogger(__name__).exception("Unhandled API error")
-    message = "Internal server error"
-    if not settings.is_production:
-        message = f"{message}: {exc}"
     return JSONResponse(
         status_code=500,
-        content={"error": message, "code": "internal_error"},
+        content={
+            "error": "Something went wrong. Please try again in a moment.",
+            "code": "internal_error",
+        },
     )
