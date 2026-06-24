@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     alert_rate_limit: str = "5/minute"
     auth_rate_limit: str = "10/minute"
     enable_legacy_api: bool = Field(default=False, alias="ENABLE_LEGACY_API")
+    # Return OTP in API responses for Expo Go / internal testing (no SMS). Disable before public launch.
+    dev_otp_enabled: bool = Field(default=False, alias="DEV_OTP_ENABLED")
     location_min_update_seconds: float = 5.0
     location_max_accuracy_meters: float = 500.0
 
@@ -100,7 +102,16 @@ class Settings(BaseSettings):
                 "Set a random 32+ character JWT_SECRET_KEY in Railway Variables. "
                 "Auth tokens are insecure until this is fixed."
             )
+        if self.is_production and self.dev_otp_enabled:
+            logger.warning(
+                "DEV_OTP_ENABLED=true on production — login codes are returned in API responses. "
+                "Disable before public launch."
+            )
         return self
+
+    @property
+    def expose_dev_otp(self) -> bool:
+        return self.environment.lower() == "development" or self.dev_otp_enabled
 
     @property
     def jwt_secret_is_strong(self) -> bool:

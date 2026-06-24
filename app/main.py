@@ -80,10 +80,15 @@ async def health() -> dict[str, object]:
         issues.append(
             "Set JWT_SECRET_KEY to a random 32+ character string in Railway Variables"
         )
+    if settings.is_production and settings.dev_otp_enabled:
+        issues.append(
+            "DEV_OTP_ENABLED=true — login test codes are exposed. Disable before public launch."
+        )
     return {
         "status": "degraded" if issues else "ok",
         "environment": settings.environment,
         "jwt_configured": settings.jwt_secret_is_strong,
+        "dev_otp_enabled": settings.dev_otp_enabled,
         "issues": issues,
     }
 

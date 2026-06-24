@@ -156,7 +156,7 @@ class IdentityService:
         self.db.add(session)
         await self.db.flush()
 
-        dev_hint = otp if settings.environment == "development" else None
+        dev_hint = otp if settings.expose_dev_otp else None
         return session.id, dev_hint
 
     async def verify_phone_login(
@@ -251,7 +251,7 @@ class IdentityService:
         self.db.add(session)
         await self.db.flush()
 
-        dev_hint = otp if settings.environment == "development" else None
+        dev_hint = otp if settings.expose_dev_otp else None
         return session.id, dev_hint
 
     async def verify_phone_otp(self, user: User, phone_number: str, otp: str, country_code: str | None = None) -> User:

@@ -96,7 +96,10 @@ class PhoneStartRequest(BaseModel):
 
 class PhoneStartResponse(BaseModel):
     session_id: UUID
-    dev_otp: str | None = Field(default=None, description="Only returned in development")
+    dev_otp: str | None = Field(
+        default=None,
+        description="Returned when ENVIRONMENT=development or DEV_OTP_ENABLED=true (no SMS sent)",
+    )
 
 
 class PhoneVerifyRequest(BaseModel):
