@@ -62,6 +62,8 @@ class GroupService:
 
     async def list_for_user(self, user_id: UUID) -> list[GroupListItemResponse]:
         memberships = await self.groups.list_memberships_for_user(user_id)
+        group_ids = [m.group.id for m in memberships if m.group is not None]
+        types_by_group = await self.groups.list_emergency_types_for_groups(group_ids)
         items: list[GroupListItemResponse] = []
         for membership in memberships:
             group = membership.group
@@ -81,6 +83,7 @@ class GroupService:
                     created_at=group.created_at,
                     member_count=count,
                     my_role=membership.role,
+                    emergency_types=types_by_group.get(group.id, []),
                 )
             )
         return items

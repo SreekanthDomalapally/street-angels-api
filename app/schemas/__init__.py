@@ -262,6 +262,7 @@ class GroupDetailResponse(GroupResponse):
 class GroupListItemResponse(GroupResponse):
     member_count: int
     my_role: str | None = None
+    emergency_types: list[str] = Field(default_factory=list)
 
 
 class UserLookupRequest(BaseModel):
