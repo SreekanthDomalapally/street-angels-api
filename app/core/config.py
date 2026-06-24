@@ -1,4 +1,5 @@
 from functools import lru_cache
+import os
 
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,7 +18,10 @@ class Settings(BaseSettings):
 
     app_name: str = "YouHoo Alert API"
     app_version: str = "1.0.0"
-    environment: str = "development"
+    environment: str = Field(
+        default="development",
+        validation_alias=AliasChoices("ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"),
+    )
     debug: bool = False
     api_prefix: str = "/api/v1"
 
@@ -44,7 +48,10 @@ class Settings(BaseSettings):
         ),
     )
 
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("REDIS_URL", "redis_url"),
+    )
 
     jwt_secret_key: str = Field(default="change-me-in-production", alias="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
@@ -87,6 +94,20 @@ class Settings(BaseSettings):
                     "JWT_SECRET_KEY must be a random string of at least 32 characters in production"
                 )
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_environment_from_railway(cls, data: object) -> object:
+        """Use Railway's injected env name when ENVIRONMENT is unset or still default."""
+        if not isinstance(data, dict):
+            return data
+        railway = str(
+            data.get("RAILWAY_ENVIRONMENT_NAME") or data.get("railway_environment_name") or ""
+        ).strip().lower()
+        env = str(data.get("ENVIRONMENT") or data.get("environment") or "").strip().lower()
+        if railway and (not env or env == "development"):
+            data["environment"] = railway
+        return data
 
     @property
     def cors_origin_list(self) -> list[str]:
