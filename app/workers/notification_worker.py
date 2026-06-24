@@ -65,7 +65,7 @@ class NotificationWorker:
             try:
                 self._last_heartbeat = datetime.now(UTC)
                 await self._drain_outbox()
-                item = await self.queue.dequeue(timeout=2)
+                item = await self.queue.dequeue(timeout=0)
                 if item:
                     payload, raw = item
                     await self._process(payload, raw)
@@ -87,9 +87,39 @@ class NotificationWorker:
                 await session.commit()
                 logger.info("outbox_drained", extra={"published": published})
 
+    async def drain_outbox_once(self) -> int:
+        engine = get_engine()
+        if not engine:
+            return 0
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            outbox = NotificationOutbox(session)
+            published = await outbox.drain_pending()
+            if published:
+                await session.commit()
+                logger.info("outbox_drained_immediate", extra={"published": published})
+            return published
+
     async def _process(self, payload: dict[str, Any], raw: str) -> None:
         try:
             msg_type = payload.get("type")
+            payload["notification_sent_at"] = datetime.now(UTC).isoformat()
+            if payload.get("alert_created_at") and payload.get("notification_queued_at"):
+                try:
+                    created = datetime.fromisoformat(str(payload["alert_created_at"]))
+                    queued = datetime.fromisoformat(str(payload["notification_queued_at"]))
+                    sent = datetime.now(UTC)
+                    logger.info(
+                        "alert_notification_timing",
+                        extra={
+                            "alert_id": payload.get("alert_id"),
+                            "create_to_queue_ms": int((queued - created).total_seconds() * 1000),
+                            "queue_to_send_ms": int((sent - queued).total_seconds() * 1000),
+                            "create_to_send_ms": int((sent - created).total_seconds() * 1000),
+                        },
+                    )
+                except (TypeError, ValueError):
+                    pass
             stale: list[str] = []
             if msg_type == "alert_created":
                 tokens = await self._tokens_for_users(payload.get("recipient_user_ids", []))

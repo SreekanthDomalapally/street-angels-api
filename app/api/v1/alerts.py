@@ -43,8 +43,7 @@ async def create_alert(
 ) -> AlertOut:
     await redis_rate_limiter.check(f"sos:{user.id}", limit=5, window_seconds=60)
     created = await AlertService(db).create(user, body)
-    alert = await AlertRepository(db).get_by_id(created.id) or created
-    return await serialize_alert(db, alert)
+    return await serialize_alert(db, created)
 
 
 @router.get("/{alert_id}", response_model=AlertOut)

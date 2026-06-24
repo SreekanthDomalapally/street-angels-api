@@ -64,12 +64,12 @@ class GroupService:
         memberships = await self.groups.list_memberships_for_user(user_id)
         group_ids = [m.group.id for m in memberships if m.group is not None]
         types_by_group = await self.groups.list_emergency_types_for_groups(group_ids)
+        counts_by_group = await self.groups.member_counts_for_groups(group_ids)
         items: list[GroupListItemResponse] = []
         for membership in memberships:
             group = membership.group
             if group is None:
                 continue
-            count = await self.groups.member_count(group.id)
             items.append(
                 GroupListItemResponse(
                     id=group.id,
@@ -81,7 +81,7 @@ class GroupService:
                     visibility=group.visibility,
                     created_by=group.created_by,
                     created_at=group.created_at,
-                    member_count=count,
+                    member_count=counts_by_group.get(group.id, 0),
                     my_role=membership.role,
                     emergency_types=types_by_group.get(group.id, []),
                 )

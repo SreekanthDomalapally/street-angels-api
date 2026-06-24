@@ -111,6 +111,8 @@ class AlertService:
                 "latitude": alert.latitude,
                 "longitude": alert.longitude,
                 "recipient_user_ids": recipient_ids,
+                "alert_created_at": datetime.now(UTC).isoformat(),
+                "notification_queued_at": datetime.now(UTC).isoformat(),
             }
         )
         await alert_ws_manager.broadcast(

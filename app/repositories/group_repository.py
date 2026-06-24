@@ -22,9 +22,19 @@ class GroupRepository:
 
     async def member_count(self, group_id: UUID) -> int:
         result = await self.db.execute(
-            select(GroupMember.id).where(GroupMember.group_id == group_id)
+            select(func.count()).select_from(GroupMember).where(GroupMember.group_id == group_id)
         )
-        return len(result.scalars().all())
+        return int(result.scalar_one())
+
+    async def member_counts_for_groups(self, group_ids: list[UUID]) -> dict[UUID, int]:
+        if not group_ids:
+            return {}
+        result = await self.db.execute(
+            select(GroupMember.group_id, func.count())
+            .where(GroupMember.group_id.in_(group_ids))
+            .group_by(GroupMember.group_id)
+        )
+        return {group_id: int(count) for group_id, count in result.all()}
 
     async def list_for_user(self, user_id: UUID) -> list[Group]:
         result = await self.db.execute(

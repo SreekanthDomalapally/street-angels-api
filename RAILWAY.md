@@ -38,11 +38,14 @@ Set these on the **API** service (not Postgres):
 | Variable | Example / notes |
 |----------|-----------------|
 | `DATABASE_URL` | `${{ Postgres.DATABASE_URL }}` (reference) |
-| `JWT_SECRET_KEY` | Random 32+ char secret |
-| `ENVIRONMENT` | `production` |
+| `JWT_SECRET_KEY` | **Required** — random 32+ char secret (`openssl rand -hex 32`). API will start without it but `/health` reports `degraded` and auth is insecure |
+| `ENVIRONMENT` | Optional — auto-detected from Railway's `RAILWAY_ENVIRONMENT_NAME` when unset |
 | `CORS_ORIGINS` | `https://youhooalert.com,http://localhost:3000` |
-| `REDIS_URL` | Add Redis plugin or Upstash URL |
-| `FCM_ENABLED` | `false` until service account added |
+| `REDIS_URL` | `${{ Redis.REDIS_URL }}` — required for SOS push |
+| `PUSH_ENABLED` | `true` |
+| `DEV_OTP_ENABLED` | `true` during internal testing — shows login code in app (no SMS). **Set `false` before public launch** |
+
+Remove unused vars: `FCM_ENABLED` (not read by this API).
 
 Optional: `GOOGLE_OAUTH_CLIENT_ID`, `STRIPE_SECRET_KEY`, `FIREBASE_CREDENTIALS_JSON`
 
@@ -85,6 +88,7 @@ API service → **Settings** → **Networking** → **Generate domain** or add `
 |-------|-----|
 | Build fails | Check Railway build logs; ensure `requirements.txt` is valid |
 | DB connection error | Link Postgres; use `${{ Postgres.DATABASE_URL }}` on API service |
-| App crashes on start | Set `JWT_SECRET_KEY`; check logs |
+| App crashes on start (502) | Set `JWT_SECRET_KEY` (32+ chars); check Railway deploy logs |
+| `/health` shows `degraded` | Set `JWT_SECRET_KEY` — see issues array in response |
 | Push notifications fail | Add `REDIS_URL` + Redis service |
 | CORS errors from mobile/web | Add origin to `CORS_ORIGINS` |

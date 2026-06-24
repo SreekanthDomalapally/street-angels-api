@@ -15,6 +15,7 @@ from app.db.session import AsyncSession, get_db
 from app.core.exceptions import AppError
 from app.core.logging import setup_logging
 from app.core.rate_limit import limiter
+from app.core.timing_middleware import RequestTimingMiddleware
 from app.db.session import check_db_connection
 from app.websocket.manager import alert_ws_manager, websocket_endpoint
 from app.workers.notification_worker import notification_worker
@@ -49,6 +50,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _cors_origins = settings.cors_origin_list
 _allow_all_origins = _cors_origins == ["*"]
+app.add_middleware(RequestTimingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if _allow_all_origins else _cors_origins,

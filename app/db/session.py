@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -23,6 +24,10 @@ def get_engine():
         _engine = create_async_engine(
             url,
             pool_pre_ping=True,
+            pool_size=10,
+            max_overflow=20,
+            pool_recycle=300,
+            pool_timeout=30,
             connect_args={"prepare_threshold": None},
         )
         _session_factory = async_sessionmaker(_engine, expire_on_commit=False, autoflush=False)
@@ -37,6 +42,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
+            from app.workers.notification_worker import notification_worker
+
+            asyncio.create_task(notification_worker.drain_outbox_once())
         except Exception:
             await session.rollback()
             raise
