@@ -87,7 +87,12 @@ class ExpoPushService:
             raise RuntimeError(f"Expo push request failed: {exc!r}") from exc
 
     def _collect_stale(self, payload: dict[str, Any], tokens: list[str]) -> list[str]:
-        """Tickets come back in token order; pair them up to find dead tokens."""
+        """Tickets come back in token order; pair them up to find dead tokens.
+
+        Delivery accounting must never raise: Expo already accepted the push by the
+        time we parse tickets, so a logging/parsing error here must not abort the
+        worker or dead-letter an emergency that was actually delivered.
+        """
         tickets = payload.get("data", []) if isinstance(payload, dict) else []
         ok = 0
         stale: list[str] = []
@@ -98,16 +103,23 @@ class ExpoPushService:
                 ok += 1
                 continue
             err = (ticket.get("details") or {}).get("error")
-            logger.warning(
-                "push_ticket_error",
-                extra={"message": ticket.get("message"), "error": err},
-            )
+            # NOTE: "message" is a reserved LogRecord attribute — never put it in `extra`.
+            try:
+                logger.warning(
+                    "push_ticket_error",
+                    extra={"ticket_message": ticket.get("message"), "error": err},
+                )
+            except Exception:  # pragma: no cover - logging must never break delivery
+                pass
             if err == "DeviceNotRegistered":
                 stale.append(token)
-        logger.info(
-            "push_sent",
-            extra={"tokens": len(tokens), "ok": ok, "errors": len(tickets) - ok},
-        )
+        try:
+            logger.info(
+                "push_sent",
+                extra={"tokens": len(tokens), "ok": ok, "errors": len(tickets) - ok},
+            )
+        except Exception:  # pragma: no cover - logging must never break delivery
+            pass
         return stale
 
     async def send_alert(self, tokens: list[str], payload: dict[str, Any]) -> list[str]:
