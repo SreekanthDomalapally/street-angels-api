@@ -68,12 +68,19 @@ def _build_issues(report: dict[str, Any]) -> list[dict[str, str]]:
         )
 
     if redis["ok"] and redis.get("dlq", 0) > 0:
+        last_error = redis.get("dlq_last_error")
+        detail = f" Last error: {last_error}" if last_error else ""
         issues.append(
             {
                 "severity": "warning",
                 "code": "dlq_not_empty",
-                "message": f"{redis['dlq']} failed notification(s) in the dead-letter queue.",
-                "fix": "Check Railway logs for notification_process_failed and push_send_failed.",
+                "message": (
+                    f"{redis['dlq']} failed notification(s) in the dead-letter queue.{detail}"
+                ),
+                "fix": (
+                    "Fix the cause (often Expo FCM v1 credentials via `eas credentials`), then "
+                    "run `python scripts/recover_dlq.py --requeue` to retry."
+                ),
             }
         )
 

@@ -71,11 +71,20 @@ class ExpoPushService:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(EXPO_PUSH_URL, json=messages, headers=headers)
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    # Expo returns a JSON error body explaining bad requests/credentials.
+                    body = resp.text[:500]
+                    logger.error(
+                        "push_send_http_error",
+                        extra={"status": resp.status_code, "body": body},
+                    )
+                    raise RuntimeError(f"Expo push HTTP {resp.status_code}: {body}")
                 return self._collect_stale(resp.json(), valid)
-        except Exception as exc:
-            logger.error("push_send_failed", extra={"error": str(exc)})
+        except RuntimeError:
             raise
+        except Exception as exc:
+            logger.error("push_send_failed", extra={"error": repr(exc)})
+            raise RuntimeError(f"Expo push request failed: {exc!r}") from exc
 
     def _collect_stale(self, payload: dict[str, Any], tokens: list[str]) -> list[str]:
         """Tickets come back in token order; pair them up to find dead tokens."""

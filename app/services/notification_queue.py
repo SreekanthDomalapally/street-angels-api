@@ -138,6 +138,43 @@ class NotificationQueue:
         payload["error"] = error
         await self._redis.rpush(DLQ_KEY, json.dumps(payload))
 
+    async def list_dlq(self, limit: int = 50) -> list[dict[str, Any]]:
+        await self.connect()
+        assert self._redis is not None
+        raw = await self._redis.lrange(DLQ_KEY, 0, limit - 1)
+        entries: list[dict[str, Any]] = []
+        for item in raw:
+            try:
+                entries.append(json.loads(item))
+            except (ValueError, TypeError):
+                entries.append({"error": "unparseable", "raw": item})
+        return entries
+
+    async def requeue_dlq(self) -> int:
+        """Move all DLQ entries back to the main queue for retry. Returns count moved."""
+        await self.connect()
+        assert self._redis is not None
+        moved = 0
+        while True:
+            item = await self._redis.lpop(DLQ_KEY)
+            if item is None:
+                break
+            try:
+                payload = json.loads(item)
+                payload.pop("error", None)
+                await self._redis.rpush(QUEUE_KEY, json.dumps(payload))
+                moved += 1
+            except (ValueError, TypeError):
+                continue
+        return moved
+
+    async def clear_dlq(self) -> int:
+        await self.connect()
+        assert self._redis is not None
+        count = int(await self._redis.llen(DLQ_KEY))
+        await self._redis.delete(DLQ_KEY)
+        return count
+
     async def health_check(self) -> dict[str, Any]:
         """Ping Redis and return queue depths for diagnostics."""
         import time
@@ -152,12 +189,25 @@ class NotificationQueue:
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             pending = int(await self._redis.llen(QUEUE_KEY))
             dlq = int(await self._redis.llen(DLQ_KEY))
+            dlq_last_error: str | None = None
+            dlq_last_type: str | None = None
+            if dlq > 0:
+                raw = await self._redis.lindex(DLQ_KEY, -1)
+                if raw:
+                    try:
+                        entry = json.loads(raw)
+                        dlq_last_error = str(entry.get("error"))[:300]
+                        dlq_last_type = entry.get("type")
+                    except (ValueError, TypeError):
+                        dlq_last_error = "unparseable DLQ entry"
             return {
                 "ok": True,
                 "host": host,
                 "latency_ms": latency_ms,
                 "queue_pending": pending,
                 "dlq": dlq,
+                "dlq_last_error": dlq_last_error,
+                "dlq_last_type": dlq_last_type,
                 "error": None,
             }
         except Exception as exc:
