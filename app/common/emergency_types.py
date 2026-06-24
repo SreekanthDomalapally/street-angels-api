@@ -53,7 +53,7 @@ EMERGENCY_TYPES: list[EmergencyTypeMeta] = [
     ),
     EmergencyTypeMeta(
         AlertType.CAR_BREAKDOWN.value,
-        "Car Breakdown",
+        "Breakdown",
         "car",
         "Vehicle trouble or roadside assistance needed.",
         severity=3,
@@ -61,21 +61,21 @@ EMERGENCY_TYPES: list[EmergencyTypeMeta] = [
         sort_order=30,
     ),
     EmergencyTypeMeta(
+        AlertType.NEED_PICKUP.value,
+        "Pickup",
+        "hand-left",
+        "Need a ride or to be collected from a location.",
+        severity=3,
+        default_radius_km=15,
+        sort_order=40,
+    ),
+    EmergencyTypeMeta(
         AlertType.LOST_OR_STRANDED.value,
-        "I am Lost!",
+        "Lost",
         "compass",
         "Lost, stranded, or unable to get home safely.",
         severity=2,
         default_radius_km=20,
-        sort_order=40,
-    ),
-    EmergencyTypeMeta(
-        AlertType.MY_NEIGHBOURHOOD.value,
-        "My neighbourhood",
-        "home",
-        "Help from people in your trusted neighbourhood circle.",
-        severity=3,
-        default_radius_km=10,
         sort_order=50,
     ),
     EmergencyTypeMeta(
@@ -93,9 +93,9 @@ EMERGENCY_TYPES: list[EmergencyTypeMeta] = [
 LEGACY_ALERT_TYPE_ALIASES: dict[str, str] = {
     AlertType.LEGACY_UNSAFE_SITUATION.value: AlertType.PERSONAL_SAFETY.value,
     AlertType.LEGACY_MEDICAL_HELP.value: AlertType.MEDICAL.value,
-    AlertType.LEGACY_PICKUP_REQUEST.value: AlertType.MY_NEIGHBOURHOOD.value,
-    AlertType.NEED_PICKUP.value: AlertType.MY_NEIGHBOURHOOD.value,
-    AlertType.GENERAL_HELP.value: AlertType.MY_NEIGHBOURHOOD.value,
+    AlertType.LEGACY_PICKUP_REQUEST.value: AlertType.NEED_PICKUP.value,
+    AlertType.GENERAL_HELP.value: AlertType.NEED_PICKUP.value,
+    AlertType.MY_NEIGHBOURHOOD.value: AlertType.NEED_PICKUP.value,
 }
 
 _BY_CODE: dict[str, EmergencyTypeMeta] = {meta.code: meta for meta in EMERGENCY_TYPES}

@@ -34,8 +34,8 @@ EMERGENCY_TYPE_SKILLS: dict[str, list[str]] = {
     "medical": ["doctor", "nurse", "cpr", "first_aid", "mental_health"],
     "personal_safety": ["security", "emergency_contact", "local_contact"],
     "car_breakdown": ["mechanic", "roadside_assistance"],
+    "need_pickup": ["local_contact", "emergency_contact"],
     "lost_or_stranded": ["local_contact", "emergency_contact"],
-    "my_neighbourhood": ["local_contact", "emergency_contact"],
     "custom": [],
 }
 

@@ -16,70 +16,38 @@ def upgrade() -> None:
         "UPDATE emergency_types SET name = 'Safety', sort_order = 20 WHERE code = 'personal_safety'"
     )
     op.execute(
-        "UPDATE emergency_types SET name = 'Car Breakdown', sort_order = 30 WHERE code = 'car_breakdown'"
+        "UPDATE emergency_types SET name = 'Breakdown', sort_order = 30 WHERE code = 'car_breakdown'"
     )
     op.execute(
-        "UPDATE emergency_types SET name = 'I am Lost!', sort_order = 40 WHERE code = 'lost_or_stranded'"
+        "UPDATE emergency_types SET name = 'Pickup', sort_order = 40 WHERE code = 'need_pickup'"
+    )
+    op.execute(
+        "UPDATE emergency_types SET name = 'Lost', sort_order = 50 WHERE code = 'lost_or_stranded'"
     )
     op.execute("UPDATE emergency_types SET name = 'Custom', sort_order = 60 WHERE code = 'custom'")
 
-    op.execute(
-        f"""
-        INSERT INTO emergency_types (id, code, name, severity, sort_order)
-        VALUES ('{uuid.uuid4()}', 'my_neighbourhood', 'My neighbourhood', 3, 50)
-        ON CONFLICT (code) DO UPDATE
-        SET name = EXCLUDED.name, severity = EXCLUDED.severity, sort_order = EXCLUDED.sort_order
-        """
-    )
-
-    # Retired group assignments: merge need_pickup / general_help -> my_neighbourhood
-    # without violating uq_group_emergency_type (group_id, alert_type).
-    op.execute(
-        """
-        INSERT INTO group_emergency_types (id, group_id, alert_type)
-        SELECT gen_random_uuid(), retired.group_id, 'my_neighbourhood'
-        FROM group_emergency_types retired
-        WHERE retired.alert_type IN ('need_pickup', 'general_help')
-        GROUP BY retired.group_id
-        HAVING NOT EXISTS (
-            SELECT 1
-            FROM group_emergency_types existing
-            WHERE existing.group_id = retired.group_id
-              AND existing.alert_type = 'my_neighbourhood'
-        )
-        """
-    )
+    # Remove general_help from groups and alerts; drop from catalog.
     op.execute(
         """
         DELETE FROM group_emergency_types
-        WHERE alert_type IN ('need_pickup', 'general_help')
+        WHERE alert_type = 'general_help'
         """
     )
-
     op.execute(
         """
         UPDATE alerts
-        SET alert_type = 'my_neighbourhood'
-        WHERE alert_type IN ('need_pickup', 'general_help')
+        SET alert_type = 'need_pickup'
+        WHERE alert_type = 'general_help'
         """
     )
-
-    op.execute("DELETE FROM emergency_types WHERE code IN ('need_pickup', 'general_help')")
+    op.execute("DELETE FROM emergency_types WHERE code = 'general_help'")
 
 
 def downgrade() -> None:
     op.execute(
         f"""
         INSERT INTO emergency_types (id, code, name, severity, sort_order)
-        VALUES
-            ('{uuid.uuid4()}', 'need_pickup', 'Need Pickup', 3, 40),
-            ('{uuid.uuid4()}', 'general_help', 'General Help', 4, 60)
+        VALUES ('{uuid.uuid4()}', 'general_help', 'General Help', 4, 60)
         ON CONFLICT (code) DO NOTHING
         """
     )
-
-    op.execute("DELETE FROM emergency_types WHERE code = 'my_neighbourhood'")
-
-    op.execute("UPDATE emergency_types SET name = 'Medical Help' WHERE code = 'medical'")
-    op.execute("UPDATE emergency_types SET name = 'Personal Safety' WHERE code = 'personal_safety'")
-    op.execute("UPDATE emergency_types SET name = 'Lost or Stranded' WHERE code = 'lost_or_stranded'")
