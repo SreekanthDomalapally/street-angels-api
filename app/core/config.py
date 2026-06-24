@@ -62,7 +62,6 @@ class Settings(BaseSettings):
     )
     firebase_credentials_path: str | None = Field(default=None, alias="FIREBASE_CREDENTIALS_PATH")
     firebase_credentials_json: str | None = Field(default=None, alias="FIREBASE_CREDENTIALS_JSON")
-    fcm_enabled: bool = Field(default=False, alias="FCM_ENABLED")
 
     # Push delivery via Expo's push service (relays to FCM/APNs).
     push_enabled: bool = Field(default=True, alias="PUSH_ENABLED")

@@ -3,13 +3,13 @@ from typing import Any
 from app.core.config import settings
 from app.core.exceptions import UnauthorizedError
 from app.core.logging import get_logger
-from app.services.fcm_service import FCMService
+from app.services.firebase_app import ensure_firebase_app
 
 logger = get_logger(__name__)
 
 
 def _ensure_firebase_app() -> None:
-    FCMService()._ensure_init()
+    ensure_firebase_app()
 
 
 def verify_firebase_id_token(id_token: str) -> dict[str, Any]:
