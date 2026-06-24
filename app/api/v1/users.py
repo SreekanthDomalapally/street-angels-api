@@ -8,7 +8,16 @@ from app.db.session import get_db
 from app.models import User
 from app.common.enums import UserAccountStatus
 from app.repositories.user_repository import UserRepository
-from app.schemas import UserLookupMatch, UserLookupRequest, UserLookupResponse, UserResponse, UserUpdateRequest
+from app.schemas import (
+    UserLookupMatch,
+    UserLookupRequest,
+    UserLookupResponse,
+    UserResponse,
+    UserSkillItem,
+    UserSkillsUpdateRequest,
+    UserUpdateRequest,
+)
+from app.services.responder_service import ResponderService
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -57,4 +66,33 @@ async def update_profile(
         user.last_known_latitude = body.last_known_latitude
     if body.last_known_longitude is not None:
         user.last_known_longitude = body.last_known_longitude
+    if body.certifications is not None:
+        user.certifications = body.certifications
+    if body.languages is not None:
+        user.languages = body.languages
+    if body.vehicle_available is not None:
+        user.vehicle_available = body.vehicle_available
+    if body.medical_background is not None:
+        user.medical_background = body.medical_background
+    if body.available_for_emergencies is not None:
+        user.available_for_emergencies = body.available_for_emergencies
+    if body.location_visibility is not None:
+        user.location_visibility = body.location_visibility
     return await UserRepository(db).update(user)
+
+
+@router.get("/me/skills", response_model=list[UserSkillItem])
+async def list_my_skills(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[UserSkillItem]:
+    return await ResponderService(db).list_skills(user.id)
+
+
+@router.put("/me/skills", response_model=list[UserSkillItem])
+async def set_my_skills(
+    body: UserSkillsUpdateRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[UserSkillItem]:
+    return await ResponderService(db).set_skills(user.id, body.skills)

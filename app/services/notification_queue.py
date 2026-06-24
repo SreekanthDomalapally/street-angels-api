@@ -47,6 +47,7 @@ class NotificationQueue:
         latitude: float,
         longitude: float,
         recipient_user_ids: list[str],
+        sender_name: str | None = None,
     ) -> None:
         await self.enqueue(
             {
@@ -55,6 +56,7 @@ class NotificationQueue:
                 "alert_id": alert_id,
                 "group_id": group_id,
                 "alert_type": alert_type,
+                "sender_name": sender_name,
                 "latitude": latitude,
                 "longitude": longitude,
                 "recipient_user_ids": recipient_user_ids,

@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Group, GroupInvite, GroupMember, User
+from app.models import Group, GroupEmergencyType, GroupInvite, GroupMember, User
 from app.common.group_invite_utils import invite_matches_user
 
 
@@ -110,6 +110,16 @@ class GroupRepository:
         )
         return list(result.scalars().all())
 
+    async def list_members_for_groups(self, group_ids: list[UUID]) -> list[GroupMember]:
+        if not group_ids:
+            return []
+        result = await self.db.execute(
+            select(GroupMember)
+            .options(selectinload(GroupMember.user))
+            .where(GroupMember.group_id.in_(group_ids))
+        )
+        return list(result.scalars().all())
+
     async def list_members_across_user_groups(self, user_id: UUID) -> list[GroupMember]:
         user_group_ids = select(GroupMember.group_id).where(GroupMember.user_id == user_id)
         result = await self.db.execute(
@@ -193,6 +203,37 @@ class GroupRepository:
             .order_by(GroupInvite.created_at.desc())
         )
         return [invite for invite in result.scalars().all() if invite_matches_user(invite, user)]
+
+    async def list_emergency_types(self, group_id: UUID) -> list[str]:
+        result = await self.db.execute(
+            select(GroupEmergencyType.alert_type).where(
+                GroupEmergencyType.group_id == group_id
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_emergency_types_for_groups(
+        self, group_ids: list[UUID]
+    ) -> dict[UUID, list[str]]:
+        if not group_ids:
+            return {}
+        result = await self.db.execute(
+            select(GroupEmergencyType.group_id, GroupEmergencyType.alert_type).where(
+                GroupEmergencyType.group_id.in_(group_ids)
+            )
+        )
+        mapping: dict[UUID, list[str]] = {}
+        for group_id, alert_type in result.all():
+            mapping.setdefault(group_id, []).append(alert_type)
+        return mapping
+
+    async def set_emergency_types(self, group_id: UUID, codes: list[str]) -> None:
+        await self.db.execute(
+            delete(GroupEmergencyType).where(GroupEmergencyType.group_id == group_id)
+        )
+        for code in dict.fromkeys(codes):
+            self.db.add(GroupEmergencyType(group_id=group_id, alert_type=code))
+        await self.db.flush()
 
     async def list_pending_invites_for_group(self, group_id: UUID) -> list[GroupInvite]:
         result = await self.db.execute(

@@ -10,12 +10,14 @@ from app.models import User
 from app.schemas import (
     GroupCreateRequest,
     GroupDetailResponse,
+    GroupEmergencyTypesUpdateRequest,
     GroupInviteListItemResponse,
     GroupInviteRequest,
     GroupInviteResponse,
     GroupListItemResponse,
     GroupMemberAddRequest,
     GroupResponse,
+    GroupUpdateRequest,
     TripOut,
 )
 from app.services.group_service import GroupService
@@ -74,6 +76,37 @@ async def get_group(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> GroupDetailResponse:
     return await GroupService(db).get_detail(user, group_id)
+
+
+@router.patch("/{group_id}", response_model=GroupResponse)
+async def update_group(
+    group_id: UUID,
+    body: GroupUpdateRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> GroupResponse:
+    group = await GroupService(db).update_group(user, group_id, body)
+    return GroupResponse.model_validate(group)
+
+
+@router.get("/{group_id}/emergency-types", response_model=list[str])
+async def get_group_emergency_types(
+    group_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[str]:
+    return await GroupService(db).get_emergency_types(user, group_id)
+
+
+@router.put("/{group_id}/emergency-types", response_model=list[str])
+async def set_group_emergency_types(
+    group_id: UUID,
+    body: GroupEmergencyTypesUpdateRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[str]:
+    codes = [t.value for t in body.emergency_types]
+    return await GroupService(db).set_emergency_types(user, group_id, codes)
 
 
 @router.post("/{group_id}/members", status_code=204)

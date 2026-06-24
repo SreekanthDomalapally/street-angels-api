@@ -61,6 +61,12 @@ class UserResponse(BaseModel):
     last_known_latitude: float | None
     last_known_longitude: float | None
     notification_preferences: dict
+    certifications: list = Field(default_factory=list)
+    languages: list = Field(default_factory=list)
+    vehicle_available: bool = False
+    medical_background: str | None = None
+    available_for_emergencies: bool = True
+    location_visibility: str = "groups"
     created_at: datetime
     updated_at: datetime
     last_active_at: datetime | None = None
@@ -169,6 +175,12 @@ class UserUpdateRequest(BaseModel):
     notification_preferences: dict | None = None
     last_known_latitude: float | None = None
     last_known_longitude: float | None = None
+    certifications: list[str] | None = Field(default=None, max_length=50)
+    languages: list[str] | None = Field(default=None, max_length=50)
+    vehicle_available: bool | None = None
+    medical_background: str | None = Field(default=None, max_length=1000)
+    available_for_emergencies: bool | None = None
+    location_visibility: str | None = None
 
 
 class GroupCreateRequest(BaseModel):
@@ -176,6 +188,20 @@ class GroupCreateRequest(BaseModel):
     description: str | None = None
     is_temporary: bool = False
     expires_at: datetime | None = None
+    priority: int = Field(default=3, ge=1, le=5)
+    visibility: str = Field(default="private", max_length=32)
+    emergency_types: list[AlertType] | None = None
+
+
+class GroupUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    priority: int | None = Field(default=None, ge=1, le=5)
+    visibility: str | None = Field(default=None, max_length=32)
+
+
+class GroupEmergencyTypesUpdateRequest(BaseModel):
+    emergency_types: list[AlertType] = Field(default_factory=list)
 
 
 class GroupMemberAddRequest(BaseModel):
@@ -204,6 +230,8 @@ class GroupResponse(BaseModel):
     description: str | None
     is_temporary: bool
     expires_at: datetime | None
+    priority: int = 3
+    visibility: str = "private"
     created_by: UUID
     created_at: datetime
 
@@ -228,6 +256,7 @@ class GroupDetailResponse(GroupResponse):
     member_count: int
     members: list[GroupMemberResponse]
     pending_invites: list[GroupPendingInviteResponse] = Field(default_factory=list)
+    emergency_types: list[str] = Field(default_factory=list)
 
 
 class GroupListItemResponse(GroupResponse):
@@ -328,6 +357,7 @@ class AlertResponseItem(BaseModel):
     user_id: UUID
     response_type: str
     eta_minutes: int | None
+    distance_km: float | None = None
     created_at: datetime
 
 
@@ -397,3 +427,29 @@ class ErrorResponse(BaseModel):
     error: str
     code: str = "error"
     details: dict = Field(default_factory=dict)
+
+
+class SkillResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    name: str
+    category: str
+    sort_order: int
+
+
+class UserSkillItem(BaseModel):
+    skill_code: str
+    name: str
+    category: str
+    level: str
+    verified: bool
+
+
+class UserSkillInput(BaseModel):
+    skill_code: str = Field(min_length=1, max_length=64)
+    level: str = Field(default="basic", max_length=32)
+
+
+class UserSkillsUpdateRequest(BaseModel):
+    skills: list[UserSkillInput] = Field(default_factory=list, max_length=50)

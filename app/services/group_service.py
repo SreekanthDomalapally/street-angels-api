@@ -22,6 +22,7 @@ from app.schemas import (
     GroupMemberAddRequest,
     GroupMemberResponse,
     GroupPendingInviteResponse,
+    GroupUpdateRequest,
 )
 
 
@@ -44,12 +45,18 @@ class GroupService:
             description=body.description,
             is_temporary=body.is_temporary,
             expires_at=body.expires_at,
+            priority=body.priority,
+            visibility=body.visibility,
             created_by=user.id,
         )
         await self.groups.create(group)
         await self.groups.add_member(
             GroupMember(group_id=group.id, user_id=user.id, role="owner")
         )
+        if body.emergency_types:
+            await self.groups.set_emergency_types(
+                group.id, [t.value for t in body.emergency_types]
+            )
         await self._audit(user.id, "group.create", str(group.id))
         return group
 
@@ -68,6 +75,8 @@ class GroupService:
                     description=group.description,
                     is_temporary=group.is_temporary,
                     expires_at=group.expires_at,
+                    priority=group.priority,
+                    visibility=group.visibility,
                     created_by=group.created_by,
                     created_at=group.created_at,
                     member_count=count,
@@ -107,18 +116,53 @@ class GroupService:
                 )
                 for invite in invites
             ]
+        emergency_types = await self.groups.list_emergency_types(group_id)
         return GroupDetailResponse(
             id=group.id,
             name=group.name,
             description=group.description,
             is_temporary=group.is_temporary,
             expires_at=group.expires_at,
+            priority=group.priority,
+            visibility=group.visibility,
             created_by=group.created_by,
             created_at=group.created_at,
             member_count=len(members),
             members=members,
             pending_invites=pending_invites,
+            emergency_types=emergency_types,
         )
+
+    async def update_group(self, actor: User, group_id: UUID, body: GroupUpdateRequest) -> Group:
+        group = await self._require_admin(actor, group_id)
+        if body.name is not None:
+            trimmed = body.name.strip()
+            if trimmed and trimmed.lower() != group.name.lower():
+                clash = await self.groups.get_owned_by_name(group.created_by, trimmed)
+                if clash and clash.id != group.id:
+                    raise ValidationError(f'A circle named "{clash.name}" already exists.')
+            group.name = trimmed or group.name
+        if body.description is not None:
+            group.description = body.description
+        if body.priority is not None:
+            group.priority = body.priority
+        if body.visibility is not None:
+            group.visibility = body.visibility
+        await self._audit(actor.id, "group.update", str(group_id))
+        return group
+
+    async def get_emergency_types(self, user: User, group_id: UUID) -> list[str]:
+        if not await self.groups.is_member(group_id, user.id):
+            raise ForbiddenError("You are not a member of this group")
+        return await self.groups.list_emergency_types(group_id)
+
+    async def set_emergency_types(
+        self, actor: User, group_id: UUID, codes: list[str]
+    ) -> list[str]:
+        await self._require_admin(actor, group_id)
+        await self.groups.set_emergency_types(group_id, codes)
+        await self._audit(actor.id, "group.emergency_types.update", str(group_id))
+        return await self.groups.list_emergency_types(group_id)
 
     async def add_member(
         self, actor: User, group_id: UUID, body: GroupMemberAddRequest

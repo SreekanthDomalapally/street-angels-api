@@ -83,10 +83,15 @@ class FCMService:
             raise
 
     async def send_alert(self, tokens: list[str], payload: dict[str, Any]) -> None:
+        from app.common.emergency_types import label_for
+
+        type_label = label_for(str(payload.get("alert_type", "")))
+        sender = payload.get("sender_name")
+        title = f"{sender} needs help" if sender else "Emergency alert"
         await self.send_to_tokens(
             tokens,
-            title="Emergency Alert",
-            body=f"New {payload.get('alert_type', 'SOS')} alert — tap to respond",
+            title=title,
+            body=f"{type_label} — tap to respond",
             data={k: str(v) for k, v in payload.items()},
             high_priority=True,
         )

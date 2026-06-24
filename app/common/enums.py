@@ -2,11 +2,19 @@ import enum
 
 
 class AlertType(str, enum.Enum):
-    UNSAFE_SITUATION = "unsafe_situation"
-    MEDICAL_HELP = "medical_help"
+    # Canonical Phase 0 vocabulary (shared 1:1 with the mobile app).
+    MEDICAL = "medical"
+    PERSONAL_SAFETY = "personal_safety"
     CAR_BREAKDOWN = "car_breakdown"
-    PICKUP_REQUEST = "pickup_request"
+    NEED_PICKUP = "need_pickup"
+    LOST_OR_STRANDED = "lost_or_stranded"
+    GENERAL_HELP = "general_help"
     CUSTOM = "custom"
+
+    # Legacy values still accepted from older clients / historical rows.
+    LEGACY_UNSAFE_SITUATION = "unsafe_situation"
+    LEGACY_MEDICAL_HELP = "medical_help"
+    LEGACY_PICKUP_REQUEST = "pickup_request"
 
 
 class AlertStatus(str, enum.Enum):

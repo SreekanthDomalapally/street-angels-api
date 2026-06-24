@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     firebase_credentials_json: str | None = Field(default=None, alias="FIREBASE_CREDENTIALS_JSON")
     fcm_enabled: bool = Field(default=False, alias="FCM_ENABLED")
 
+    # Push delivery via Expo's push service (relays to FCM/APNs).
+    push_enabled: bool = Field(default=True, alias="PUSH_ENABLED")
+    expo_access_token: str | None = Field(default=None, alias="EXPO_ACCESS_TOKEN")
+
     stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
     stripe_donation_success_url: str = "https://youhooalert.com/donate/success"

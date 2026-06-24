@@ -1,12 +1,12 @@
 import asyncio
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.logging import get_logger
 from app.db.session import get_engine
 from app.models import DeviceToken
-from app.services.fcm_service import FCMService
+from app.services.expo_push_service import ExpoPushService
 from app.services.notification_queue import NotificationQueue
 
 logger = get_logger(__name__)
@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 class NotificationWorker:
     def __init__(self) -> None:
         self.queue = NotificationQueue()
-        self.fcm = FCMService()
+        self.push = ExpoPushService()
         self._task: asyncio.Task | None = None
         self._running = False
 
@@ -52,21 +52,27 @@ class NotificationWorker:
     async def _process(self, payload: dict[str, Any]) -> None:
         try:
             msg_type = payload.get("type")
+            stale: list[str] = []
             if msg_type == "alert_created":
                 tokens = await self._tokens_for_users(payload.get("recipient_user_ids", []))
-                await self.fcm.send_alert(tokens, payload)
+                stale = await self.push.send_alert(tokens, payload)
             elif msg_type == "alert_response":
                 tokens = await self._tokens_for_users([payload.get("creator_id", "")])
-                await self.fcm.send_to_tokens(
+                stale = await self.push.send_to_tokens(
                     tokens,
                     title="Alert response",
                     body=f"{payload.get('responder_name')} — {payload.get('response_type')}",
-                    data={k: str(v) for k, v in payload.items()},
+                    data={
+                        "type": "responder_update",
+                        "alert_id": str(payload.get("alert_id", "")),
+                        "response_type": str(payload.get("response_type", "")),
+                    },
+                    channel_id="responder",
                     high_priority=True,
                 )
             elif msg_type == "trip_started":
                 tokens = await self._tokens_for_users(payload.get("recipient_user_ids", []))
-                await self.fcm.send_to_tokens(
+                stale = await self.push.send_to_tokens(
                     tokens,
                     title="Trip watch started",
                     body=f"{payload.get('traveler_name')} started {payload.get('label')}",
@@ -75,11 +81,12 @@ class NotificationWorker:
                         "trip_id": str(payload.get("trip_id", "")),
                         "group_id": str(payload.get("group_id", "")),
                     },
+                    channel_id="groups",
                     high_priority=False,
                 )
             elif msg_type == "trip_arrived":
                 tokens = await self._tokens_for_users(payload.get("recipient_user_ids", []))
-                await self.fcm.send_to_tokens(
+                stale = await self.push.send_to_tokens(
                     tokens,
                     title="Arrived safely",
                     body=f"{payload.get('traveler_name')} reached {payload.get('destination_label')}",
@@ -88,11 +95,28 @@ class NotificationWorker:
                         "trip_id": str(payload.get("trip_id", "")),
                         "group_id": str(payload.get("group_id", "")),
                     },
+                    channel_id="groups",
                     high_priority=True,
                 )
+
+            await self._remove_stale_tokens(stale)
         except Exception as exc:
             await self.queue.move_to_dlq(payload, str(exc))
             logger.error("notification_process_failed", extra={"error": str(exc)})
+
+    async def _remove_stale_tokens(self, tokens: list[str]) -> None:
+        if not tokens:
+            return
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = get_engine()
+        if not engine:
+            return
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            await session.execute(delete(DeviceToken).where(DeviceToken.token.in_(tokens)))
+            await session.commit()
+        logger.info("push_tokens_removed", extra={"count": len(tokens)})
 
     async def _tokens_for_users(self, user_ids: list[str]) -> list[str]:
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker

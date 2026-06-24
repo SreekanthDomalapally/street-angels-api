@@ -33,7 +33,14 @@ class User(Base):
     suspended: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     last_known_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_known_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notification_preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    certifications: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    languages: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    vehicle_available: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    medical_background: Mapped[str | None] = mapped_column(Text, nullable=True)
+    available_for_emergencies: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    location_visibility: Mapped[str] = mapped_column(String(32), nullable=False, server_default="groups")
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     firebase_uid: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
     phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
@@ -48,6 +55,7 @@ class User(Base):
 
     device_tokens: Mapped[list["DeviceToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    skills: Mapped[list["UserSkill"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class RefreshToken(Base):
@@ -87,6 +95,8 @@ class Group(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_temporary: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
+    visibility: Mapped[str] = mapped_column(String(32), nullable=False, server_default="private")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -95,6 +105,9 @@ class Group(Base):
 
     members: Mapped[list["GroupMember"]] = relationship(back_populates="group", cascade="all, delete-orphan")
     invites: Mapped[list["GroupInvite"]] = relationship(back_populates="group", cascade="all, delete-orphan")
+    emergency_types: Mapped[list["GroupEmergencyType"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
 
 
 class GroupMember(Base):
@@ -201,6 +214,9 @@ class Alert(Base):
     location_updates: Mapped[list["AlertLocationUpdate"]] = relationship(
         back_populates="alert", cascade="all, delete-orphan"
     )
+    recipients: Mapped[list["AlertRecipient"]] = relationship(
+        back_populates="alert", cascade="all, delete-orphan"
+    )
 
 
 class AlertResponse(Base):
@@ -212,6 +228,7 @@ class AlertResponse(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     response_type: Mapped[str] = mapped_column(String(64), nullable=False)
     eta_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     alert: Mapped[Alert] = relationship(back_populates="responses")
@@ -300,3 +317,67 @@ class Trip(Base):
 
     group: Mapped[Group] = relationship()
     traveler: Mapped[User] = relationship()
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, server_default="other")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user_skills: Mapped[list["UserSkill"]] = relationship(back_populates="skill", cascade="all, delete-orphan")
+
+
+class UserSkill(Base):
+    __tablename__ = "user_skills"
+    __table_args__ = (UniqueConstraint("user_id", "skill_id", name="uq_user_skill"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    skill_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("skills.id", ondelete="CASCADE"), index=True)
+    level: Mapped[str] = mapped_column(String(32), nullable=False, server_default="basic")
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="skills")
+    skill: Mapped[Skill] = relationship(back_populates="user_skills")
+
+
+class GroupEmergencyType(Base):
+    __tablename__ = "group_emergency_types"
+    __table_args__ = (
+        UniqueConstraint("group_id", "alert_type", name="uq_group_emergency_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    group_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True)
+    alert_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    group: Mapped[Group] = relationship(back_populates="emergency_types")
+
+
+class AlertRecipient(Base):
+    """Who was selected/notified for an alert. One row per user (dedup across groups)."""
+
+    __tablename__ = "alert_recipients"
+    __table_args__ = (UniqueConstraint("alert_id", "user_id", name="uq_alert_recipient"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    alert_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("alerts.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("groups.id", ondelete="SET NULL"), nullable=True
+    )
+    distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    alert: Mapped[Alert] = relationship(back_populates="recipients")
+    user: Mapped[User] = relationship()

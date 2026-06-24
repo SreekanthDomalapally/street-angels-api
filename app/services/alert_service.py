@@ -8,12 +8,21 @@ from app.common.enums import AlertStatus
 from app.core.config import settings
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.models import Alert, AlertEvent, AlertLocationUpdate, AlertResponse, AuditLog, User
+from app.models import (
+    Alert,
+    AlertEvent,
+    AlertLocationUpdate,
+    AlertRecipient,
+    AlertResponse,
+    AuditLog,
+    User,
+)
 from app.repositories.alert_repository import AlertRepository
 from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas import AlertCreateRequest, AlertResponseRequest, LocationUpdateRequest
 from app.services.notification_queue import NotificationQueue
+from app.services.routing_service import RoutingService
 from app.websocket.manager import alert_ws_manager
 
 logger = get_logger(__name__)
@@ -26,6 +35,7 @@ class AlertService:
         self.groups = GroupRepository(db)
         self.users = UserRepository(db)
         self.queue = NotificationQueue()
+        self.routing = RoutingService(db)
 
     async def create(self, user: User, body: AlertCreateRequest) -> Alert:
         if not await self.groups.is_member(body.group_id, user.id):
@@ -44,19 +54,32 @@ class AlertService:
         await self.alerts.create(alert)
         user.last_known_latitude = body.latitude
         user.last_known_longitude = body.longitude
+        user.location_updated_at = datetime.now(UTC)
         await self.users.update(user)
 
         await self._log_event(alert.id, "alert.created", {"created_by": str(user.id)})
         await self._audit(user.id, "alert.create", str(alert.id))
 
-        member_ids = await self._group_member_ids(body.group_id)
+        # Smart routing: matching groups -> deduped, ranked responders.
+        recipients = await self.routing.build_recipients(user, alert)
+        for recipient in recipients:
+            self.db.add(recipient)
+        await self.db.flush()
+
+        recipient_ids = [str(r.user_id) for r in recipients]
+        if not recipient_ids:
+            # Fallback to the selected group's members so an SOS always reaches someone.
+            member_ids = await self._group_member_ids(body.group_id)
+            recipient_ids = [str(uid) for uid in member_ids if uid != user.id]
+
         await self.queue.enqueue_alert_created(
             alert_id=str(alert.id),
             group_id=str(body.group_id),
             alert_type=alert.alert_type,
             latitude=alert.latitude,
             longitude=alert.longitude,
-            recipient_user_ids=[str(uid) for uid in member_ids if uid != user.id],
+            recipient_user_ids=recipient_ids,
+            sender_name=user.full_name,
         )
         await alert_ws_manager.broadcast(
             str(alert.id),
@@ -69,10 +92,13 @@ class AlertService:
         alert = await self._require_alert_access(user, alert_id)
         if alert.status != AlertStatus.ACTIVE.value:
             raise ValidationError("Alert is not active")
+        distance_km = await self._recipient_distance(alert_id, user.id)
         existing = await self.alerts.get_response(alert_id, user.id)
         if existing:
             existing.response_type = body.response_type.value
             existing.eta_minutes = body.eta_minutes
+            if distance_km is not None:
+                existing.distance_km = distance_km
             response = existing
         else:
             response = AlertResponse(
@@ -80,6 +106,7 @@ class AlertService:
                 user_id=user.id,
                 response_type=body.response_type.value,
                 eta_minutes=body.eta_minutes,
+                distance_km=distance_km,
             )
             await self.alerts.add_response(response)
 
@@ -182,6 +209,15 @@ class AlertService:
         if await self.groups.is_member(alert.group_id, user.id):
             return alert
         raise ForbiddenError("No access to this alert")
+
+    async def _recipient_distance(self, alert_id: UUID, user_id: UUID) -> float | None:
+        result = await self.db.execute(
+            select(AlertRecipient.distance_km).where(
+                AlertRecipient.alert_id == alert_id,
+                AlertRecipient.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def _group_member_ids(self, group_id: UUID) -> list[UUID]:
         group = await self.groups.get_by_id(group_id)
