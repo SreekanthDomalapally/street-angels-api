@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models import Group, GroupEmergencyType, GroupInvite, GroupMember, User
 from app.common.group_invite_utils import invite_matches_user
+from app.common.emergency_types import normalize_emergency_type_codes
 
 
 class GroupRepository:
@@ -220,7 +221,7 @@ class GroupRepository:
                 GroupEmergencyType.group_id == group_id
             )
         )
-        return list(result.scalars().all())
+        return normalize_emergency_type_codes(list(result.scalars().all()))
 
     async def list_emergency_types_for_groups(
         self, group_ids: list[UUID]
@@ -235,13 +236,17 @@ class GroupRepository:
         mapping: dict[UUID, list[str]] = {}
         for group_id, alert_type in result.all():
             mapping.setdefault(group_id, []).append(alert_type)
-        return mapping
+        return {
+            group_id: normalize_emergency_type_codes(codes)
+            for group_id, codes in mapping.items()
+        }
 
     async def set_emergency_types(self, group_id: UUID, codes: list[str]) -> None:
+        normalized = normalize_emergency_type_codes(codes)
         await self.db.execute(
             delete(GroupEmergencyType).where(GroupEmergencyType.group_id == group_id)
         )
-        for code in dict.fromkeys(codes):
+        for code in normalized:
             self.db.add(GroupEmergencyType(group_id=group_id, alert_type=code))
         await self.db.flush()
 

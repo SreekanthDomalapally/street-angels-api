@@ -99,10 +99,24 @@ LEGACY_ALERT_TYPE_ALIASES: dict[str, str] = {
 }
 
 _BY_CODE: dict[str, EmergencyTypeMeta] = {meta.code: meta for meta in EMERGENCY_TYPES}
+CANONICAL_CODES: frozenset[str] = frozenset(_BY_CODE.keys())
 
 
 def canonical_code(value: str) -> str:
     return LEGACY_ALERT_TYPE_ALIASES.get(value, value)
+
+
+def normalize_emergency_type_codes(codes: list[str]) -> list[str]:
+    """Map retired codes to their replacement and drop unknown/duplicate entries."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in codes:
+        code = canonical_code(raw)
+        if code not in CANONICAL_CODES or code in seen:
+            continue
+        seen.add(code)
+        normalized.append(code)
+    return normalized
 
 
 def get_meta(value: str) -> EmergencyTypeMeta | None:

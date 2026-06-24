@@ -32,14 +32,37 @@ def upgrade() -> None:
         """
     )
 
-    for table in ("group_emergency_types", "alerts"):
-        op.execute(
-            f"""
-            UPDATE {table}
-            SET alert_type = 'my_neighbourhood'
-            WHERE alert_type IN ('need_pickup', 'general_help')
-            """
+    # Retired group assignments: merge need_pickup / general_help -> my_neighbourhood
+    # without violating uq_group_emergency_type (group_id, alert_type).
+    op.execute(
+        """
+        INSERT INTO group_emergency_types (id, group_id, alert_type)
+        SELECT gen_random_uuid(), retired.group_id, 'my_neighbourhood'
+        FROM group_emergency_types retired
+        WHERE retired.alert_type IN ('need_pickup', 'general_help')
+        GROUP BY retired.group_id
+        HAVING NOT EXISTS (
+            SELECT 1
+            FROM group_emergency_types existing
+            WHERE existing.group_id = retired.group_id
+              AND existing.alert_type = 'my_neighbourhood'
         )
+        """
+    )
+    op.execute(
+        """
+        DELETE FROM group_emergency_types
+        WHERE alert_type IN ('need_pickup', 'general_help')
+        """
+    )
+
+    op.execute(
+        """
+        UPDATE alerts
+        SET alert_type = 'my_neighbourhood'
+        WHERE alert_type IN ('need_pickup', 'general_help')
+        """
+    )
 
     op.execute("DELETE FROM emergency_types WHERE code IN ('need_pickup', 'general_help')")
 

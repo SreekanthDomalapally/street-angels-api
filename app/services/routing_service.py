@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.emergency_types import canonical_code
 from app.common.geo import haversine_km
 from app.common.skills import relevant_skills
 from app.models import Alert, AlertRecipient, Skill, User, UserSkill
@@ -50,7 +51,9 @@ class RoutingService:
         matching_group_ids: list[UUID] = []
         for m in memberships:
             configured = type_map.get(m.group_id, [])
-            if not configured or alert.alert_type in configured:
+            alert_code = canonical_code(alert.alert_type)
+            configured_codes = {canonical_code(code) for code in configured}
+            if not configured or alert_code in configured_codes:
                 matching_group_ids.append(m.group_id)
                 priority_by_group[m.group_id] = m.group.priority if m.group else 3
 
