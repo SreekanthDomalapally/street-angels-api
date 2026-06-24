@@ -67,10 +67,12 @@ Railway gives a URL like `https://street-angels-api-production.up.railway.app`
 ```bash
 curl https://YOUR-RAILWAY-URL/health
 curl https://YOUR-RAILWAY-URL/health/db
+curl https://YOUR-RAILWAY-URL/health/notifications
 ```
 
 - `/health` → `{"status":"ok","environment":"production"}`
 - `/health/db` → `{"status":"ok","storage":"postgres"}`
+- `/health/notifications` → Redis, worker, push tokens, queue depth, and actionable `issues` (503 if critical failures)
 - `/docs` → Swagger UI
 
 ## 8. Custom domain (optional)

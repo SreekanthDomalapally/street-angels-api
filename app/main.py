@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import Depends, FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
@@ -79,6 +78,16 @@ async def health_db() -> dict[str, str]:
         return {"status": "skipped", "message": "DATABASE_URL not set"}
     ok = await check_db_connection()
     return {"status": "ok" if ok else "error", "storage": "postgres"}
+
+
+@app.get("/health/notifications")
+async def health_notifications() -> JSONResponse:
+    """Diagnostic report for SOS push delivery (Redis, worker, tokens, queue)."""
+    from app.services.notification_health import collect_notification_health
+
+    report = await collect_notification_health()
+    status_code = 503 if report["status"] == "error" else 200
+    return JSONResponse(status_code=status_code, content=report)
 
 
 @app.exception_handler(AppError)

@@ -37,6 +37,17 @@ class NotificationWorker:
             self._task = None
         await self.queue.close()
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    @property
+    def task_alive(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    def status_snapshot(self) -> dict[str, bool]:
+        return {"running": self.is_running, "task_alive": self.task_alive}
+
     async def _run(self) -> None:
         while self._running:
             try:

@@ -137,3 +137,35 @@ class NotificationQueue:
         assert self._redis is not None
         payload["error"] = error
         await self._redis.rpush(DLQ_KEY, json.dumps(payload))
+
+    async def health_check(self) -> dict[str, Any]:
+        """Ping Redis and return queue depths for diagnostics."""
+        import time
+        from urllib.parse import urlparse
+
+        host = urlparse(settings.redis_url).hostname or "unknown"
+        try:
+            await self.connect()
+            assert self._redis is not None
+            started = time.perf_counter()
+            await self._redis.ping()
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            pending = int(await self._redis.llen(QUEUE_KEY))
+            dlq = int(await self._redis.llen(DLQ_KEY))
+            return {
+                "ok": True,
+                "host": host,
+                "latency_ms": latency_ms,
+                "queue_pending": pending,
+                "dlq": dlq,
+                "error": None,
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "host": host,
+                "latency_ms": None,
+                "queue_pending": None,
+                "dlq": None,
+                "error": str(exc),
+            }
