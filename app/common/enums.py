@@ -2,14 +2,17 @@ import enum
 
 
 class AlertType(str, enum.Enum):
-    # Canonical Phase 0 vocabulary (shared 1:1 with the mobile app).
+    # Canonical vocabulary (shared 1:1 with the mobile app).
     MEDICAL = "medical"
     PERSONAL_SAFETY = "personal_safety"
     CAR_BREAKDOWN = "car_breakdown"
-    NEED_PICKUP = "need_pickup"
     LOST_OR_STRANDED = "lost_or_stranded"
-    GENERAL_HELP = "general_help"
+    MY_NEIGHBOURHOOD = "my_neighbourhood"
     CUSTOM = "custom"
+
+    # Retired codes — still accepted from historical rows / older clients.
+    NEED_PICKUP = "need_pickup"
+    GENERAL_HELP = "general_help"
 
     # Legacy values still accepted from older clients / historical rows.
     LEGACY_UNSAFE_SITUATION = "unsafe_situation"

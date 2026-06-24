@@ -34,9 +34,8 @@ EMERGENCY_TYPE_SKILLS: dict[str, list[str]] = {
     "medical": ["doctor", "nurse", "cpr", "first_aid", "mental_health"],
     "personal_safety": ["security", "emergency_contact", "local_contact"],
     "car_breakdown": ["mechanic", "roadside_assistance"],
-    "need_pickup": ["local_contact", "emergency_contact"],
     "lost_or_stranded": ["local_contact", "emergency_contact"],
-    "general_help": ["emergency_contact", "local_contact"],
+    "my_neighbourhood": ["local_contact", "emergency_contact"],
     "custom": [],
 }
 
@@ -48,4 +47,6 @@ def is_valid_skill(code: str) -> bool:
 
 
 def relevant_skills(alert_type: str) -> list[str]:
-    return EMERGENCY_TYPE_SKILLS.get(alert_type, [])
+    from app.common.emergency_types import canonical_code
+
+    return EMERGENCY_TYPE_SKILLS.get(canonical_code(alert_type), [])
