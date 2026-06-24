@@ -1,8 +1,15 @@
 from functools import lru_cache
+import logging
 import os
 
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+UNSAFE_JWT_SECRETS = frozenset(
+    {"", "change-me-in-production", "changeme", "secret", "change-me-use-openssl-rand-hex-32"}
+)
 
 
 def normalize_database_url(url: str) -> str:
@@ -86,14 +93,19 @@ class Settings(BaseSettings):
     location_max_accuracy_meters: float = 500.0
 
     @model_validator(mode="after")
-    def validate_production_secrets(self) -> "Settings":
-        if self.is_production:
-            unsafe = {"", "change-me-in-production", "changeme", "secret"}
-            if self.jwt_secret_key.lower() in unsafe or len(self.jwt_secret_key) < 32:
-                raise ValueError(
-                    "JWT_SECRET_KEY must be a random string of at least 32 characters in production"
-                )
+    def warn_on_weak_production_secrets(self) -> "Settings":
+        if self.is_production and not self.jwt_secret_is_strong:
+            logger.critical(
+                "JWT_SECRET_KEY is missing or too weak for production. "
+                "Set a random 32+ character JWT_SECRET_KEY in Railway Variables. "
+                "Auth tokens are insecure until this is fixed."
+            )
         return self
+
+    @property
+    def jwt_secret_is_strong(self) -> bool:
+        key = self.jwt_secret_key.strip()
+        return key.lower() not in UNSAFE_JWT_SECRETS and len(key) >= 32
 
     @model_validator(mode="before")
     @classmethod

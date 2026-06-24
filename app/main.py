@@ -22,6 +22,11 @@ from app.workers.notification_worker import notification_worker
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    if settings.is_production and not settings.jwt_secret_is_strong:
+        logging.getLogger(__name__).critical(
+            "Production deploy is missing JWT_SECRET_KEY (32+ random chars). "
+            "Add it in Railway → API service → Variables."
+        )
     await notification_worker.start()
     yield
     await notification_worker.stop()
@@ -68,8 +73,18 @@ async def alert_websocket(
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "environment": settings.environment}
+async def health() -> dict[str, object]:
+    issues: list[str] = []
+    if settings.is_production and not settings.jwt_secret_is_strong:
+        issues.append(
+            "Set JWT_SECRET_KEY to a random 32+ character string in Railway Variables"
+        )
+    return {
+        "status": "degraded" if issues else "ok",
+        "environment": settings.environment,
+        "jwt_configured": settings.jwt_secret_is_strong,
+        "issues": issues,
+    }
 
 
 @app.get("/health/db")
