@@ -98,16 +98,14 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def resolve_environment_from_railway(cls, data: object) -> object:
-        """Use Railway's injected env name when ENVIRONMENT is unset or still default."""
-        if not isinstance(data, dict):
-            return data
-        railway = str(
-            data.get("RAILWAY_ENVIRONMENT_NAME") or data.get("railway_environment_name") or ""
-        ).strip().lower()
-        env = str(data.get("ENVIRONMENT") or data.get("environment") or "").strip().lower()
-        if railway and (not env or env == "development"):
-            data["environment"] = railway
-        return data
+        """Prefer Railway's injected env name when ENVIRONMENT is unset or left as default."""
+        payload = dict(data) if isinstance(data, dict) else {}
+        explicit = os.environ.get("ENVIRONMENT", "").strip()
+        railway = os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
+        current = str(payload.get("environment") or explicit or "development").strip().lower()
+        if railway and (not explicit or current == "development"):
+            payload["environment"] = railway
+        return payload
 
     @property
     def cors_origin_list(self) -> list[str]:
