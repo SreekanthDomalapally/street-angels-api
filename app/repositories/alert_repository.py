@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Alert, AlertEvent, AlertLocationUpdate, AlertResponse, GroupMember
+from app.models import Alert, AlertEvent, AlertLocationUpdate, AlertResponse, AlertRecipient, GroupMember
 
 
 class AlertRepository:
@@ -54,11 +54,27 @@ class AlertRepository:
         member_groups = (
             select(GroupMember.group_id).where(GroupMember.user_id == user_id).scalar_subquery()
         )
+        recipient_alerts = (
+            select(AlertRecipient.alert_id).where(AlertRecipient.user_id == user_id).scalar_subquery()
+        )
         result = await self.db.execute(
             select(Alert)
             .options(selectinload(Alert.responses), selectinload(Alert.location_updates))
-            .where((Alert.created_by == user_id) | (Alert.group_id.in_(member_groups)))
+            .where(
+                (Alert.created_by == user_id)
+                | (Alert.group_id.in_(member_groups))
+                | (Alert.id.in_(recipient_alerts))
+            )
             .order_by(Alert.created_at.desc())
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def is_recipient(self, alert_id: UUID, user_id: UUID) -> bool:
+        result = await self.db.execute(
+            select(AlertRecipient.id).where(
+                AlertRecipient.alert_id == alert_id,
+                AlertRecipient.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none() is not None

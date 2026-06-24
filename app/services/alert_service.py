@@ -62,15 +62,23 @@ class AlertService:
 
         # Smart routing: matching groups -> deduped, ranked responders.
         recipients = await self.routing.build_recipients(user, alert)
+        if not recipients:
+            for member_id in await self._group_member_ids(body.group_id):
+                if member_id == user.id:
+                    continue
+                recipients.append(
+                    AlertRecipient(
+                        alert_id=alert.id,
+                        user_id=member_id,
+                        group_id=body.group_id,
+                        notified=True,
+                    )
+                )
         for recipient in recipients:
             self.db.add(recipient)
         await self.db.flush()
 
         recipient_ids = [str(r.user_id) for r in recipients]
-        if not recipient_ids:
-            # Fallback to the selected group's members so an SOS always reaches someone.
-            member_ids = await self._group_member_ids(body.group_id)
-            recipient_ids = [str(uid) for uid in member_ids if uid != user.id]
 
         await self.queue.enqueue_alert_created(
             alert_id=str(alert.id),
@@ -207,6 +215,8 @@ class AlertService:
         if alert.created_by == user.id:
             return alert
         if await self.groups.is_member(alert.group_id, user.id):
+            return alert
+        if await self.alerts.is_recipient(alert_id, user.id):
             return alert
         raise ForbiddenError("No access to this alert")
 
