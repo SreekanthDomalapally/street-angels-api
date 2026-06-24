@@ -21,6 +21,8 @@ from app.repositories.alert_repository import AlertRepository
 from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas import AlertCreateRequest, AlertResponseRequest, LocationUpdateRequest
+from app.common.emergency_types import severity_for
+from app.services.notification_outbox import NotificationOutbox
 from app.services.notification_queue import NotificationQueue
 from app.services.routing_service import RoutingService
 from app.websocket.manager import alert_ws_manager
@@ -35,9 +37,19 @@ class AlertService:
         self.groups = GroupRepository(db)
         self.users = UserRepository(db)
         self.queue = NotificationQueue()
+        self.outbox = NotificationOutbox(db)
         self.routing = RoutingService(db)
 
     async def create(self, user: User, body: AlertCreateRequest) -> Alert:
+        if not user.phone_verified:
+            raise ValidationError("Verify your phone number before sending SOS alerts.")
+        recent = await self.alerts.recent_active_by_user(
+            user.id, within_seconds=settings.sos_cooldown_seconds
+        )
+        if recent:
+            raise ValidationError(
+                f"Please wait {settings.sos_cooldown_seconds}s before sending another SOS."
+            )
         if not await self.groups.is_member(body.group_id, user.id):
             raise ForbiddenError("You are not a member of this group")
         self._validate_location(body.latitude, body.longitude)
@@ -50,6 +62,7 @@ class AlertService:
             latitude=body.latitude,
             longitude=body.longitude,
             status=AlertStatus.ACTIVE.value,
+            severity=severity_for(body.alert_type.value),
         )
         await self.alerts.create(alert)
         user.last_known_latitude = body.latitude
@@ -72,22 +85,33 @@ class AlertService:
                         user_id=member_id,
                         group_id=body.group_id,
                         notified=True,
+                        delivery_status="pending",
                     )
                 )
+        if not recipients:
+            recipients = await self._fallback_all_circle_members(user, alert)
+        if not recipients:
+            raise ValidationError(
+                "No reachable contacts in your circles. Add people to a group before sending SOS."
+            )
         for recipient in recipients:
             self.db.add(recipient)
         await self.db.flush()
 
         recipient_ids = [str(r.user_id) for r in recipients]
 
-        await self.queue.enqueue_alert_created(
-            alert_id=str(alert.id),
-            group_id=str(body.group_id),
-            alert_type=alert.alert_type,
-            latitude=alert.latitude,
-            longitude=alert.longitude,
-            recipient_user_ids=recipient_ids,
-            sender_name=user.full_name,
+        await self.outbox.enqueue_in_transaction(
+            {
+                "type": "alert_created",
+                "priority": "high",
+                "alert_id": str(alert.id),
+                "group_id": str(body.group_id),
+                "alert_type": alert.alert_type,
+                "sender_name": user.full_name,
+                "latitude": alert.latitude,
+                "longitude": alert.longitude,
+                "recipient_user_ids": recipient_ids,
+            }
         )
         await alert_ws_manager.broadcast(
             str(alert.id),
@@ -214,11 +238,33 @@ class AlertService:
             raise NotFoundError("Alert not found")
         if alert.created_by == user.id:
             return alert
-        if await self.groups.is_member(alert.group_id, user.id):
-            return alert
         if await self.alerts.is_recipient(alert_id, user.id):
             return alert
         raise ForbiddenError("No access to this alert")
+
+    async def _fallback_all_circle_members(self, user: User, alert: Alert) -> list[AlertRecipient]:
+        """Last-resort: notify everyone in all of the creator's circles."""
+        memberships = await self.groups.list_memberships_for_user(user.id)
+        all_group_ids = [m.group_id for m in memberships]
+        if not all_group_ids:
+            return []
+        members = await self.groups.list_members_for_groups(all_group_ids)
+        recipients: list[AlertRecipient] = []
+        seen: set[UUID] = set()
+        for member in members:
+            if member.user_id == user.id or member.user_id in seen:
+                continue
+            seen.add(member.user_id)
+            recipients.append(
+                AlertRecipient(
+                    alert_id=alert.id,
+                    user_id=member.user_id,
+                    group_id=member.group_id,
+                    notified=True,
+                    delivery_status="pending",
+                )
+            )
+        return recipients
 
     async def _recipient_distance(self, alert_id: UUID, user_id: UUID) -> float | None:
         result = await self.db.execute(

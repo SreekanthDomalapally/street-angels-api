@@ -362,6 +362,8 @@ class AlertResponseItem(BaseModel):
     response_type: str
     eta_minutes: int | None
     distance_km: float | None = None
+    responder_name: str | None = None
+    responder_phone: str | None = None
     created_at: datetime
 
 
@@ -376,8 +378,12 @@ class AlertOut(BaseModel):
     latitude: float
     longitude: float
     status: AlertStatus
+    severity: int | None = None
     created_at: datetime
     resolved_at: datetime | None
+    creator_name: str | None = None
+    creator_phone: str | None = None
+    recipient_count: int | None = None
     responses: list[AlertResponseItem] = []
 
 

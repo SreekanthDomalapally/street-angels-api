@@ -16,7 +16,7 @@ from app.core.exceptions import AppError
 from app.core.logging import setup_logging
 from app.core.rate_limit import limiter
 from app.db.session import check_db_connection
-from app.websocket.manager import websocket_endpoint
+from app.websocket.manager import alert_ws_manager, websocket_endpoint
 from app.workers.notification_worker import notification_worker
 
 
@@ -29,7 +29,9 @@ async def lifespan(app: FastAPI):
             "Add it in Railway → API service → Variables."
         )
     await notification_worker.start()
+    await alert_ws_manager.start()
     yield
+    await alert_ws_manager.stop()
     await notification_worker.stop()
 
 

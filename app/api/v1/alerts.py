@@ -17,7 +17,8 @@ from app.schemas import (
     AlertResponseRequest,
     LocationUpdateRequest,
 )
-from app.repositories.alert_repository import AlertRepository
+from app.core.redis_rate_limit import redis_rate_limiter
+from app.services.alert_serializer import serialize_alert, serialize_alerts
 from app.services.alert_service import AlertService
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -29,7 +30,7 @@ async def list_alerts(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[AlertOut]:
     alerts = await AlertService(db).list_for_user(user)
-    return [AlertOut.model_validate(alert) for alert in alerts]
+    return await serialize_alerts(db, alerts)
 
 
 @router.post("", response_model=AlertOut)
@@ -40,9 +41,10 @@ async def create_alert(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AlertOut:
+    await redis_rate_limiter.check(f"sos:{user.id}", limit=5, window_seconds=60)
     created = await AlertService(db).create(user, body)
     alert = await AlertRepository(db).get_by_id(created.id) or created
-    return AlertOut.model_validate(alert)
+    return await serialize_alert(db, alert)
 
 
 @router.get("/{alert_id}", response_model=AlertOut)
@@ -52,7 +54,7 @@ async def get_alert(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AlertOut:
     alert = await AlertService(db).get(user, alert_id)
-    return AlertOut.model_validate(alert)
+    return await serialize_alert(db, alert)
 
 
 @router.post("/{alert_id}/responses", response_model=AlertResponseItem)
@@ -88,4 +90,4 @@ async def resolve_alert(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AlertOut:
     alert = await AlertService(db).resolve(user, alert_id)
-    return AlertOut.model_validate(alert)
+    return await serialize_alert(db, alert)

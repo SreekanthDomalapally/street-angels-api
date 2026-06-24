@@ -207,6 +207,7 @@ class Alert(Base):
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
+    severity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -377,7 +378,36 @@ class AlertRecipient(Base):
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     notified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="pending")
+    delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     alert: Mapped[Alert] = relationship(back_populates="recipients")
     user: Mapped[User] = relationship()
+
+
+class NotificationOutbox(Base):
+    """Transactional outbox — written in the same DB transaction as the alert."""
+
+    __tablename__ = "notification_outbox"
+    __table_args__ = (Index("ix_notification_outbox_status", "status", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmergencyTypeCatalog(Base):
+    __tablename__ = "emergency_types"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    severity: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

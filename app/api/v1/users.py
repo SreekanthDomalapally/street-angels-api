@@ -56,8 +56,7 @@ async def update_profile(
             UserAccountStatus.PROFILE_PENDING.value,
         }:
             user.account_status = UserAccountStatus.PROFILE_COMPLETE.value
-    if body.phone_number is not None:
-        user.phone_number = body.phone_number
+    # phone_number changes require OTP verification — use /auth/phone/* endpoints.
     if body.profile_photo is not None:
         user.profile_photo = body.profile_photo
     if body.notification_preferences is not None:

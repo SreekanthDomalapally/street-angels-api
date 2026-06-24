@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import decode_token
+from app.services.token_revocation import token_revocation
 from app.db.session import get_db
 from app.models import User
 from app.repositories.user_repository import UserRepository
@@ -28,6 +29,8 @@ async def get_current_user(
         raise UnauthorizedError("Invalid or expired token") from exc
     if payload.get("type") != "access":
         raise UnauthorizedError("Invalid token type")
+    if await token_revocation.is_revoked(payload.get("jti")):
+        raise UnauthorizedError("Token revoked")
     user_id = UUID(payload["sub"])
     user = await UserRepository(db).get_by_id(user_id)
     if not user:

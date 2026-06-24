@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -18,7 +19,12 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: UUID, extra: dict[str, Any] | None = None) -> str:
     expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
-    payload: dict[str, Any] = {"sub": str(user_id), "type": "access", "exp": expire}
+    payload: dict[str, Any] = {
+        "sub": str(user_id),
+        "type": "access",
+        "jti": uuid.uuid4().hex,
+        "exp": expire,
+    }
     if extra:
         payload.update(extra)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -78,3 +79,17 @@ class AlertRepository:
             )
         )
         return result.scalar_one_or_none() is not None
+
+    async def recent_active_by_user(self, user_id: UUID, *, within_seconds: int) -> Alert | None:
+        since = datetime.now(UTC) - timedelta(seconds=within_seconds)
+        result = await self.db.execute(
+            select(Alert)
+            .where(
+                Alert.created_by == user_id,
+                Alert.status == "active",
+                Alert.created_at >= since,
+            )
+            .order_by(Alert.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()

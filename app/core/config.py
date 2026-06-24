@@ -93,14 +93,18 @@ class Settings(BaseSettings):
     dev_otp_enabled: bool = Field(default=False, alias="DEV_OTP_ENABLED")
     location_min_update_seconds: float = 5.0
     location_max_accuracy_meters: float = 500.0
+    sos_cooldown_seconds: int = Field(default=60, alias="SOS_COOLDOWN_SECONDS")
+    recipient_cap: int = Field(default=50, alias="RECIPIENT_CAP")
+    twilio_account_sid: str | None = Field(default=None, alias="TWILIO_ACCOUNT_SID")
+    twilio_auth_token: str | None = Field(default=None, alias="TWILIO_AUTH_TOKEN")
+    twilio_from_number: str | None = Field(default=None, alias="TWILIO_FROM_NUMBER")
 
     @model_validator(mode="after")
     def warn_on_weak_production_secrets(self) -> "Settings":
-        if self.is_production and not self.jwt_secret_is_strong:
+        if not self.jwt_secret_is_strong:
             logger.critical(
-                "JWT_SECRET_KEY is missing or too weak for production. "
-                "Set a random 32+ character JWT_SECRET_KEY in Railway Variables. "
-                "Auth tokens are insecure until this is fixed."
+                "JWT_SECRET_KEY is missing or too weak. "
+                "Set a random 32+ character JWT_SECRET_KEY. Auth tokens are insecure until fixed."
             )
         if self.is_production and self.dev_otp_enabled:
             logger.warning(

@@ -82,6 +82,11 @@ class RoutingService:
         self._score(best, creator, alert)
 
         ranked = sorted(best.values(), key=lambda c: c.score, reverse=True)
+        from app.core.config import settings
+
+        cap = settings.recipient_cap
+        if cap > 0:
+            ranked = ranked[:cap]
         recipients: list[AlertRecipient] = []
         for rank, cand in enumerate(ranked, start=1):
             recipients.append(

@@ -9,7 +9,9 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 QUEUE_KEY = "notifications:queue"
+PROCESSING_KEY = "notifications:processing"
 DLQ_KEY = "notifications:dlq"
+MAX_DELIVERY_ATTEMPTS = 3
 
 
 class NotificationQueue:
@@ -124,13 +126,40 @@ class NotificationQueue:
             }
         )
 
-    async def dequeue(self, timeout: int = 5) -> dict[str, Any] | None:
+    async def dequeue(self, timeout: int = 5) -> tuple[dict[str, Any], str] | None:
+        """At-least-once dequeue via BRPOPLPUSH into a processing list."""
         await self.connect()
         assert self._redis is not None
-        item = await self._redis.blpop(QUEUE_KEY, timeout=timeout)
-        if not item:
+        raw = await self._redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=timeout)
+        if not raw:
             return None
-        return json.loads(item[1])
+        return json.loads(raw), raw
+
+    async def ack(self, raw: str) -> None:
+        await self.connect()
+        assert self._redis is not None
+        await self._redis.lrem(PROCESSING_KEY, 1, raw)
+
+    async def recover_processing(self) -> int:
+        """Move orphaned processing entries back to the queue (worker restart)."""
+        await self.connect()
+        assert self._redis is not None
+        moved = 0
+        while True:
+            raw = await self._redis.rpoplpush(PROCESSING_KEY, QUEUE_KEY)
+            if not raw:
+                break
+            moved += 1
+        return moved
+
+    async def retry_or_dlq(self, payload: dict[str, Any], raw: str, error: str) -> None:
+        await self.ack(raw)
+        attempts = int(payload.get("_attempts", 0)) + 1
+        payload["_attempts"] = attempts
+        if attempts >= MAX_DELIVERY_ATTEMPTS:
+            await self.move_to_dlq(payload, error)
+        else:
+            await self.enqueue(payload)
 
     async def move_to_dlq(self, payload: dict[str, Any], error: str) -> None:
         await self.connect()
@@ -188,6 +217,7 @@ class NotificationQueue:
             await self._redis.ping()
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             pending = int(await self._redis.llen(QUEUE_KEY))
+            processing = int(await self._redis.llen(PROCESSING_KEY))
             dlq = int(await self._redis.llen(DLQ_KEY))
             dlq_last_error: str | None = None
             dlq_last_type: str | None = None
@@ -205,6 +235,7 @@ class NotificationQueue:
                 "host": host,
                 "latency_ms": latency_ms,
                 "queue_pending": pending,
+                "processing": processing,
                 "dlq": dlq,
                 "dlq_last_error": dlq_last_error,
                 "dlq_last_type": dlq_last_type,

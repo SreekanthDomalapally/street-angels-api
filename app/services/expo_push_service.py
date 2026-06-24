@@ -18,6 +18,7 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
 _EXPO_TOKEN_PREFIXES = ("ExponentPushToken[", "ExpoPushToken[")
 _MAX_TOKENS_PER_MESSAGE = 100
 
@@ -121,6 +122,28 @@ class ExpoPushService:
         except Exception:  # pragma: no cover - logging must never break delivery
             pass
         return stale
+
+    async def verify_receipts(self, ticket_ids: list[str]) -> dict[str, str]:
+        """Poll Expo for delivery receipts. Returns ticket_id -> status."""
+        if not ticket_ids:
+            return {}
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if settings.expo_access_token:
+            headers["Authorization"] = f"Bearer {settings.expo_access_token}"
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(EXPO_RECEIPTS_URL, json={"ids": ticket_ids}, headers=headers)
+                if resp.status_code >= 400:
+                    return {}
+                data = resp.json()
+                receipts = data.get("data", {}) if isinstance(data, dict) else {}
+                return {
+                    tid: str((rec or {}).get("status", "unknown"))
+                    for tid, rec in receipts.items()
+                }
+        except Exception as exc:
+            logger.warning("push_receipt_poll_failed", extra={"error": str(exc)})
+            return {}
 
     async def send_alert(self, tokens: list[str], payload: dict[str, Any]) -> list[str]:
         from app.common.emergency_types import label_for
