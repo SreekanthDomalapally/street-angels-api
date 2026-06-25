@@ -5,8 +5,11 @@ Usage:
     python scripts/recover_dlq.py --requeue      # move DLQ entries back to the queue
     python scripts/recover_dlq.py --clear        # delete DLQ entries
 
-Reads REDIS_URL from the environment (set it to the Railway Redis URL when
-running locally; on Railway it is already injected).
+Where to run:
+    **Recommended:** Railway dashboard → API service → Shell (REDIS_URL is set automatically).
+
+    From your PC only if .env has the Railway **public** REDIS_URL (not redis.railway.internal).
+    localhost:6379 will not reach production — the script exits with instructions.
 """
 
 from __future__ import annotations
@@ -14,18 +17,55 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import selectors
 import sys
+from pathlib import Path
 
 import redis.asyncio as redis
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.core.config import settings
 
 QUEUE_KEY = "notifications:queue"
 DLQ_KEY = "notifications:dlq"
 
 
+def _resolve_redis_url() -> str:
+    return settings.redis_url.strip() or "redis://localhost:6379/0"
+
+
+def _is_local_redis(url: str) -> bool:
+    lowered = url.lower()
+    return (
+        "localhost" in lowered
+        or "127.0.0.1" in lowered
+        or lowered.startswith("redis://:@localhost")
+    )
+
+
+def _print_local_redis_help() -> None:
+    print(
+        "\nERROR: REDIS_URL points to localhost - this cannot clear production DLQ.\n"
+        "\nDo this instead (takes ~30 seconds):\n"
+        "  1. Open https://railway.app -> your project\n"
+        "  2. Click the API service (street-angels-api)\n"
+        "  3. Open the Shell tab\n"
+        "  4. Run:  python scripts/recover_dlq.py --clear\n"
+        "\nOptional from your PC: copy the Redis public URL from Railway -> Redis service\n"
+        "-> Variables -> REDIS_URL into api/.env, then re-run this script.\n"
+        "(Internal host redis.railway.internal only works inside Railway.)\n"
+    )
+
+
 async def run(*, requeue: bool, clear: bool) -> None:
-    url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    url = _resolve_redis_url()
+    if _is_local_redis(url):
+        _print_local_redis_help()
+        raise SystemExit(1)
+
     client = redis.from_url(url, decode_responses=True)
 
     try:

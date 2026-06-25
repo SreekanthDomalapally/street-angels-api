@@ -23,8 +23,8 @@ class AlertRepository:
     async def create(self, alert: Alert) -> Alert:
         self.db.add(alert)
         await self.db.flush()
-        await self.db.refresh(alert)
-        return alert
+        reloaded = await self.get_by_id(alert.id)
+        return reloaded if reloaded is not None else alert
 
     async def add_response(self, response: AlertResponse) -> AlertResponse:
         self.db.add(response)

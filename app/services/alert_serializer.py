@@ -4,11 +4,21 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes
 
-from app.models import Alert, AlertRecipient, User
+from app.models import Alert, AlertRecipient, AlertResponse, User
 from app.schemas import AlertOut, AlertResponseItem
+
+
+async def _alert_responses(db: AsyncSession, alert: Alert) -> list[AlertResponse]:
+    """Load responses without async lazy-load (avoids 500 on POST /alerts)."""
+    state = inspect(alert)
+    if state.attrs.responses.loaded_value is not attributes.NO_VALUE:
+        return list(alert.responses or [])
+    result = await db.execute(select(AlertResponse).where(AlertResponse.alert_id == alert.id))
+    return list(result.scalars().all())
 
 
 async def serialize_alert(db: AsyncSession, alert: Alert) -> AlertOut:
@@ -17,7 +27,8 @@ async def serialize_alert(db: AsyncSession, alert: Alert) -> AlertOut:
         select(func.count()).select_from(AlertRecipient).where(AlertRecipient.alert_id == alert.id)
     )
 
-    response_user_ids = {r.user_id for r in alert.responses}
+    response_items = await _alert_responses(db, alert)
+    response_user_ids = {r.user_id for r in response_items}
     responder_users: dict[UUID, User] = {}
     if response_user_ids:
         result = await db.execute(select(User).where(User.id.in_(response_user_ids)))
@@ -32,7 +43,7 @@ async def serialize_alert(db: AsyncSession, alert: Alert) -> AlertOut:
     out.recipient_count = int(recipient_count or 0)
 
     enriched_responses: list[AlertResponseItem] = []
-    for item in alert.responses:
+    for item in response_items:
         resp = AlertResponseItem.model_validate(item)
         user = responder_users.get(item.user_id)
         if user:
@@ -61,8 +72,15 @@ async def serialize_alerts(db: AsyncSession, alerts: list[Alert]) -> list[AlertO
     )
     recipient_counts = {alert_id: int(count) for alert_id, count in counts_result.all()}
 
+    responses_result = await db.execute(
+        select(AlertResponse).where(AlertResponse.alert_id.in_(alert_ids))
+    )
+    responses_by_alert: dict[UUID, list[AlertResponse]] = {}
+    for response in responses_result.scalars().all():
+        responses_by_alert.setdefault(response.alert_id, []).append(response)
+
     response_user_ids = {
-        response.user_id for alert in alerts for response in alert.responses
+        response.user_id for responses in responses_by_alert.values() for response in responses
     }
     responder_users: dict[UUID, User] = {}
     if response_user_ids:
@@ -81,7 +99,7 @@ async def serialize_alerts(db: AsyncSession, alerts: list[Alert]) -> list[AlertO
         out.recipient_count = recipient_counts.get(alert.id, 0)
 
         enriched_responses: list[AlertResponseItem] = []
-        for item in alert.responses:
+        for item in responses_by_alert.get(alert.id, []):
             resp = AlertResponseItem.model_validate(item)
             user = responder_users.get(item.user_id)
             if user:
