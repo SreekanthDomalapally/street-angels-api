@@ -4,6 +4,7 @@ from typing import Any
 import redis.asyncio as redis
 
 from app.core.config import settings
+from app.core.log_extra import safe_extra
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -32,14 +33,14 @@ class NotificationQueue:
             await self.connect()
             assert self._redis is not None
             await self._redis.rpush(QUEUE_KEY, json.dumps(payload))
-            log_extra = {
-                "type": payload.get("type"),
-                "alert_id": payload.get("alert_id"),
-                "correlation_id": payload.get("correlation_id"),
-                "sender_user_id": payload.get("sender_user_id"),
-                "recipient_count": payload.get("recipient_count"),
-                "recipient_user_ids": payload.get("recipient_user_ids"),
-            }
+            log_extra = safe_extra(
+                type=payload.get("type"),
+                alert_id=payload.get("alert_id"),
+                correlation_id=payload.get("correlation_id"),
+                sender_user_id=payload.get("sender_user_id"),
+                recipient_count=payload.get("recipient_count"),
+                recipient_user_ids=payload.get("recipient_user_ids"),
+            )
             if payload.get("type") == "alert_created":
                 logger.info("NOTIFICATION_QUEUED", extra=log_extra)
             else:

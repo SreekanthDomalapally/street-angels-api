@@ -13,6 +13,7 @@ from typing import Any, Iterable
 import httpx
 
 from app.core.config import settings
+from app.core.log_extra import safe_extra
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +27,14 @@ _MAX_TOKENS_PER_MESSAGE = 100
 def _chunk(items: list[str], size: int) -> Iterable[list[str]]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
+
+
+def _log_safe(level: str, event: str, **fields: Any) -> None:
+    """Never let logging failures break emergency push delivery."""
+    try:
+        getattr(logger, level)(event, extra=safe_extra(**fields))
+    except Exception:  # pragma: no cover - logging must never break delivery
+        pass
 
 
 class ExpoPushService:
@@ -46,10 +55,7 @@ class ExpoPushService:
         """Send a notification. Returns tokens that are no longer registered."""
         valid = [t for t in dict.fromkeys(tokens) if t and self._is_expo_token(t)]
         if not settings.push_enabled or not valid:
-            logger.info(
-                "push_skipped",
-                extra={"valid": len(valid), "received": len(tokens)},
-            )
+            _log_safe("info", "push_skipped", valid=len(valid), received=len(tokens))
             return []
 
         messages = [
@@ -73,27 +79,27 @@ class ExpoPushService:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(EXPO_PUSH_URL, json=messages, headers=headers)
                 if resp.status_code >= 400:
-                    # Expo returns a JSON error body explaining bad requests/credentials.
-                    body = resp.text[:500]
-                    logger.error(
+                    response_body = resp.text[:500]
+                    _log_safe(
+                        "error",
                         "push_send_http_error",
-                        extra={"status": resp.status_code, "body": body},
+                        status=resp.status_code,
+                        response_body=response_body,
                     )
-                    raise RuntimeError(f"Expo push HTTP {resp.status_code}: {body}")
-                return self._collect_stale(resp.json(), valid)
+                    raise RuntimeError(f"Expo push HTTP {resp.status_code}: {response_body}")
+                try:
+                    return self._collect_stale(resp.json(), valid)
+                except Exception as exc:
+                    _log_safe("error", "push_ticket_parse_failed", error=repr(exc))
+                    return []
         except RuntimeError:
             raise
         except Exception as exc:
-            logger.error("push_send_failed", extra={"error": repr(exc)})
+            _log_safe("error", "push_send_failed", error=repr(exc))
             raise RuntimeError(f"Expo push request failed: {exc!r}") from exc
 
     def _collect_stale(self, payload: dict[str, Any], tokens: list[str]) -> list[str]:
-        """Tickets come back in token order; pair them up to find dead tokens.
-
-        Delivery accounting must never raise: Expo already accepted the push by the
-        time we parse tickets, so a logging/parsing error here must not abort the
-        worker or dead-letter an emergency that was actually delivered.
-        """
+        """Tickets come back in token order; pair them up to find dead tokens."""
         tickets = payload.get("data", []) if isinstance(payload, dict) else []
         ok = 0
         stale: list[str] = []
@@ -104,23 +110,15 @@ class ExpoPushService:
                 ok += 1
                 continue
             err = (ticket.get("details") or {}).get("error")
-            # NOTE: "message" is a reserved LogRecord attribute — never put it in `extra`.
-            try:
-                logger.warning(
-                    "push_ticket_error",
-                    extra={"ticket_message": ticket.get("message"), "error": err},
-                )
-            except Exception:  # pragma: no cover - logging must never break delivery
-                pass
+            _log_safe(
+                "warning",
+                "push_ticket_error",
+                ticket_message=ticket.get("message"),
+                error=err,
+            )
             if err == "DeviceNotRegistered":
                 stale.append(token)
-        try:
-            logger.info(
-                "push_sent",
-                extra={"tokens": len(tokens), "ok": ok, "errors": len(tickets) - ok},
-            )
-        except Exception:  # pragma: no cover - logging must never break delivery
-            pass
+        _log_safe("info", "push_sent", tokens=len(tokens), ok=ok, errors=len(tickets) - ok)
         return stale
 
     async def verify_receipts(self, ticket_ids: list[str]) -> dict[str, str]:
@@ -142,7 +140,7 @@ class ExpoPushService:
                     for tid, rec in receipts.items()
                 }
         except Exception as exc:
-            logger.warning("push_receipt_poll_failed", extra={"error": str(exc)})
+            _log_safe("warning", "push_receipt_poll_failed", error=str(exc))
             return {}
 
     async def send_alert(self, tokens: list[str], payload: dict[str, Any]) -> list[str]:

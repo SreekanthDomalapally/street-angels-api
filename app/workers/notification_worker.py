@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.core.log_extra import safe_extra
 from app.core.logging import get_logger
 from app.db.session import get_engine
 from app.models import AlertRecipient, DeviceToken
@@ -111,12 +112,12 @@ class NotificationWorker:
                     sent = datetime.now(UTC)
                     logger.info(
                         "alert_notification_timing",
-                        extra={
-                            "alert_id": payload.get("alert_id"),
-                            "create_to_queue_ms": int((queued - created).total_seconds() * 1000),
-                            "queue_to_send_ms": int((sent - queued).total_seconds() * 1000),
-                            "create_to_send_ms": int((sent - created).total_seconds() * 1000),
-                        },
+                        extra=safe_extra(
+                            alert_id=payload.get("alert_id"),
+                            create_to_queue_ms=int((queued - created).total_seconds() * 1000),
+                            queue_to_send_ms=int((sent - queued).total_seconds() * 1000),
+                            create_to_send_ms=int((sent - created).total_seconds() * 1000),
+                        ),
                     )
                 except (TypeError, ValueError):
                     pass
@@ -127,13 +128,13 @@ class NotificationWorker:
                 users_with_tokens = [uid for uid in recipient_ids if tokens_by_user.get(uid)]
                 users_without_tokens = [uid for uid in recipient_ids if not tokens_by_user.get(uid)]
                 all_tokens = [token for tokens in tokens_by_user.values() for token in tokens]
-                log_extra = {
-                    "correlation_id": payload.get("correlation_id"),
-                    "alert_id": payload.get("alert_id"),
-                    "sender_user_id": payload.get("sender_user_id"),
-                    "recipient_count": len(recipient_ids),
-                    "recipient_user_ids": recipient_ids,
-                }
+                log_extra = safe_extra(
+                    correlation_id=payload.get("correlation_id"),
+                    alert_id=payload.get("alert_id"),
+                    sender_user_id=payload.get("sender_user_id"),
+                    recipient_count=len(recipient_ids),
+                    recipient_user_ids=recipient_ids,
+                )
                 if not all_tokens:
                     logger.warning(
                         "NOTIFICATION_FAILED",
@@ -245,13 +246,13 @@ class NotificationWorker:
                 )
             logger.error(
                 "NOTIFICATION_FAILED",
-                extra={
-                    "correlation_id": payload.get("correlation_id"),
-                    "alert_id": payload.get("alert_id"),
-                    "sender_user_id": payload.get("sender_user_id"),
-                    "recipient_count": len(payload.get("recipient_user_ids", []) or []),
-                    "error": str(exc),
-                },
+                extra=safe_extra(
+                    correlation_id=payload.get("correlation_id"),
+                    alert_id=payload.get("alert_id"),
+                    sender_user_id=payload.get("sender_user_id"),
+                    recipient_count=len(payload.get("recipient_user_ids", []) or []),
+                    error=str(exc),
+                ),
             )
 
     async def _mark_recipients_delivered(
