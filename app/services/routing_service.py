@@ -69,6 +69,8 @@ class RoutingService:
         for member in members:
             if member.user_id == creator.id or member.user is None:
                 continue
+            if member.user.suspended:
+                continue
             group_priority = priority_by_group.get(member.group_id, 3)
             current = best.get(member.user_id)
             if current is None or group_priority < current.group_priority:

@@ -160,6 +160,8 @@ class ExpoPushService:
                 "alert_id": str(payload.get("alert_id", "")),
                 "alert_type": str(payload.get("alert_type", "")),
                 "sender_name": str(payload.get("sender_name") or ""),
+                "sender_user_id": str(payload.get("sender_user_id") or ""),
+                "correlation_id": str(payload.get("correlation_id") or ""),
             },
             channel_id="emergency",
             high_priority=True,

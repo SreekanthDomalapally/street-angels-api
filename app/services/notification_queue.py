@@ -32,7 +32,18 @@ class NotificationQueue:
             await self.connect()
             assert self._redis is not None
             await self._redis.rpush(QUEUE_KEY, json.dumps(payload))
-            logger.info("notification_enqueued", extra={"type": payload.get("type")})
+            log_extra = {
+                "type": payload.get("type"),
+                "alert_id": payload.get("alert_id"),
+                "correlation_id": payload.get("correlation_id"),
+                "sender_user_id": payload.get("sender_user_id"),
+                "recipient_count": payload.get("recipient_count"),
+                "recipient_user_ids": payload.get("recipient_user_ids"),
+            }
+            if payload.get("type") == "alert_created":
+                logger.info("NOTIFICATION_QUEUED", extra=log_extra)
+            else:
+                logger.info("notification_enqueued", extra=log_extra)
         except Exception as exc:
             # Alerts must succeed even when Redis/FCM is unavailable (e.g. Railway without Redis).
             logger.warning(

@@ -122,13 +122,73 @@ class NotificationWorker:
                     pass
             stale: list[str] = []
             if msg_type == "alert_created":
-                tokens = await self._tokens_for_users(payload.get("recipient_user_ids", []))
-                stale = await self.push.send_alert(tokens, payload)
-                await self._mark_recipients_delivered(
-                    payload.get("alert_id"),
-                    payload.get("recipient_user_ids", []),
-                    success=True,
-                )
+                recipient_ids = [str(uid) for uid in payload.get("recipient_user_ids", []) if uid]
+                tokens_by_user = await self._tokens_by_user(recipient_ids)
+                users_with_tokens = [uid for uid in recipient_ids if tokens_by_user.get(uid)]
+                users_without_tokens = [uid for uid in recipient_ids if not tokens_by_user.get(uid)]
+                all_tokens = [token for tokens in tokens_by_user.values() for token in tokens]
+                log_extra = {
+                    "correlation_id": payload.get("correlation_id"),
+                    "alert_id": payload.get("alert_id"),
+                    "sender_user_id": payload.get("sender_user_id"),
+                    "recipient_count": len(recipient_ids),
+                    "recipient_user_ids": recipient_ids,
+                }
+                if not all_tokens:
+                    logger.warning(
+                        "NOTIFICATION_FAILED",
+                        extra={
+                            **log_extra,
+                            "error": "no_device_tokens",
+                        },
+                    )
+                    await self._mark_recipients_delivered(
+                        payload.get("alert_id"),
+                        recipient_ids,
+                        success=False,
+                        error="no_device_token",
+                    )
+                else:
+                    try:
+                        stale = await self.push.send_alert(all_tokens, payload)
+                        await self._mark_recipients_delivered(
+                            payload.get("alert_id"),
+                            users_with_tokens,
+                            success=True,
+                        )
+                        if users_without_tokens:
+                            await self._mark_recipients_delivered(
+                                payload.get("alert_id"),
+                                users_without_tokens,
+                                success=False,
+                                error="no_device_token",
+                            )
+                        logger.info(
+                            "NOTIFICATION_SENT",
+                            extra={
+                                **log_extra,
+                                "token_count": len(all_tokens),
+                            },
+                        )
+                    except Exception as push_exc:
+                        await self._mark_recipients_delivered(
+                            payload.get("alert_id"),
+                            users_with_tokens,
+                            success=False,
+                            error=str(push_exc),
+                        )
+                        if users_without_tokens:
+                            await self._mark_recipients_delivered(
+                                payload.get("alert_id"),
+                                users_without_tokens,
+                                success=False,
+                                error="no_device_token",
+                            )
+                        logger.error(
+                            "NOTIFICATION_FAILED",
+                            extra={**log_extra, "error": str(push_exc)},
+                        )
+                        raise
             elif msg_type == "alert_response":
                 tokens = await self._tokens_for_users([payload.get("creator_id", "")])
                 stale = await self.push.send_to_tokens(
@@ -183,7 +243,16 @@ class NotificationWorker:
                     success=False,
                     error=str(exc),
                 )
-            logger.error("notification_process_failed", extra={"error": str(exc)})
+            logger.error(
+                "NOTIFICATION_FAILED",
+                extra={
+                    "correlation_id": payload.get("correlation_id"),
+                    "alert_id": payload.get("alert_id"),
+                    "sender_user_id": payload.get("sender_user_id"),
+                    "recipient_count": len(payload.get("recipient_user_ids", []) or []),
+                    "error": str(exc),
+                },
+            )
 
     async def _mark_recipients_delivered(
         self,
@@ -230,19 +299,27 @@ class NotificationWorker:
             await session.commit()
         logger.info("push_tokens_removed", extra={"count": len(tokens)})
 
-    async def _tokens_for_users(self, user_ids: list[str]) -> list[str]:
+    async def _tokens_by_user(self, user_ids: list[str]) -> dict[str, list[str]]:
         engine = get_engine()
         if not engine:
-            return []
+            return {}
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             ids = [UUID(uid) for uid in user_ids if uid]
             if not ids:
-                return []
+                return {}
             result = await session.execute(
-                select(DeviceToken.token).where(DeviceToken.user_id.in_(ids))
+                select(DeviceToken.user_id, DeviceToken.token).where(DeviceToken.user_id.in_(ids))
             )
-            return list(result.scalars().all())
+            tokens_by_user: dict[str, list[str]] = {}
+            for user_id, token in result.all():
+                key = str(user_id)
+                tokens_by_user.setdefault(key, []).append(token)
+            return tokens_by_user
+
+    async def _tokens_for_users(self, user_ids: list[str]) -> list[str]:
+        tokens_by_user = await self._tokens_by_user(user_ids)
+        return [token for tokens in tokens_by_user.values() for token in tokens]
 
 
 notification_worker = NotificationWorker()

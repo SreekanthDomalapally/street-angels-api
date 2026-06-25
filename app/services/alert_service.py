@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,16 @@ class AlertService:
         self.routing = RoutingService(db)
 
     async def create(self, user: User, body: AlertCreateRequest) -> Alert:
+        correlation_id = str(uuid4())
+        logger.info(
+            "SOS_TRIGGERED",
+            extra={
+                "correlation_id": correlation_id,
+                "sender_user_id": str(user.id),
+                "group_id": str(body.group_id),
+                "alert_type": body.alert_type.value,
+            },
+        )
         if not user.phone_verified:
             raise ValidationError("Verify your phone number before sending SOS alerts.")
         recent = await self.alerts.recent_active_by_user(
@@ -100,30 +110,66 @@ class AlertService:
 
         recipient_ids = [str(r.user_id) for r in recipients]
 
-        await self.outbox.enqueue_in_transaction(
-            {
-                "type": "alert_created",
-                "priority": "high",
+        logger.info(
+            "RECIPIENTS_SELECTED",
+            extra={
+                "correlation_id": correlation_id,
                 "alert_id": str(alert.id),
-                "group_id": str(body.group_id),
-                "alert_type": alert.alert_type,
-                "sender_name": user.full_name,
-                "latitude": alert.latitude,
-                "longitude": alert.longitude,
+                "sender_user_id": str(user.id),
+                "recipient_count": len(recipient_ids),
                 "recipient_user_ids": recipient_ids,
-                "alert_created_at": datetime.now(UTC).isoformat(),
-                "notification_queued_at": datetime.now(UTC).isoformat(),
-            }
+            },
+        )
+
+        outbox_payload = {
+            "type": "alert_created",
+            "priority": "high",
+            "correlation_id": correlation_id,
+            "alert_id": str(alert.id),
+            "group_id": str(body.group_id),
+            "alert_type": alert.alert_type,
+            "sender_name": user.full_name,
+            "sender_user_id": str(user.id),
+            "latitude": alert.latitude,
+            "longitude": alert.longitude,
+            "recipient_user_ids": recipient_ids,
+            "recipient_count": len(recipient_ids),
+            "alert_created_at": datetime.now(UTC).isoformat(),
+            "notification_queued_at": datetime.now(UTC).isoformat(),
+        }
+        await self.outbox.enqueue_in_transaction(outbox_payload)
+        logger.info(
+            "NOTIFICATION_QUEUED",
+            extra={
+                "correlation_id": correlation_id,
+                "alert_id": str(alert.id),
+                "sender_user_id": str(user.id),
+                "recipient_count": len(recipient_ids),
+                "recipient_user_ids": recipient_ids,
+            },
         )
         await alert_ws_manager.broadcast(
             str(alert.id),
             {"type": "alert_created", "alert_id": str(alert.id), "status": alert.status},
         )
-        logger.info("alert_created", extra={"alert_id": str(alert.id), "user_id": str(user.id)})
+        logger.info(
+            "ALERT_CREATED",
+            extra={
+                "correlation_id": correlation_id,
+                "alert_id": str(alert.id),
+                "sender_user_id": str(user.id),
+                "recipient_count": len(recipient_ids),
+                "recipient_user_ids": recipient_ids,
+            },
+        )
         return alert
 
     async def respond(self, user: User, alert_id: UUID, body: AlertResponseRequest) -> AlertResponse:
         alert = await self._require_alert_access(user, alert_id)
+        if alert.created_by == user.id:
+            raise ForbiddenError("Alert creator cannot respond to their own alert")
+        if not await self.alerts.is_recipient(alert_id, user.id):
+            raise ForbiddenError("Only alert recipients can respond")
         if alert.status != AlertStatus.ACTIVE.value:
             raise ValidationError("Alert is not active")
         distance_km = await self._recipient_distance(alert_id, user.id)
@@ -221,7 +267,8 @@ class AlertService:
         alert.resolved_at = datetime.now(UTC)
         await self._log_event(alert_id, "alert.resolved", {"resolved_by": str(user.id)})
         await alert_ws_manager.broadcast(
-            str(alert_id), {"type": "alert_resolved", "alert_id": str(alert_id)}
+            str(alert_id),
+            {"type": "alert_resolved", "alert_id": str(alert_id), "status": "resolved"},
         )
         return alert
 
@@ -255,6 +302,8 @@ class AlertService:
         seen: set[UUID] = set()
         for member in members:
             if member.user_id == user.id or member.user_id in seen:
+                continue
+            if member.user is not None and member.user.suspended:
                 continue
             seen.add(member.user_id)
             recipients.append(
