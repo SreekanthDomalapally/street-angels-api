@@ -78,8 +78,10 @@ def _build_issues(report: dict[str, Any]) -> list[dict[str, str]]:
                     f"{redis['dlq']} failed notification(s) in the dead-letter queue.{detail}"
                 ),
                 "fix": (
-                    "Fix the cause (often Expo FCM v1 credentials via `eas credentials`), then "
-                    "run `python scripts/recover_dlq.py --requeue` to retry."
+                    "These are failed jobs stored in Redis DLQ — not necessarily new failures. "
+                    "After deploying the latest API (log_extra / push logging fix), run on Railway: "
+                    "`python scripts/recover_dlq.py --requeue` to retry, or `--clear` if alerts are stale. "
+                    "If dlq_last_error mentions LogRecord 'message', redeploy latest API first, then clear/requeue."
                 ),
             }
         )
