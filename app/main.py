@@ -9,6 +9,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.debug import router as debug_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.db.session import AsyncSession, get_db
@@ -60,6 +61,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_prefix)
+app.include_router(debug_router)
 
 if settings.enable_legacy_api:
     from app.routers.legacy_api import legacy_api_router

@@ -15,8 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.emergency_types import canonical_code
 from app.common.geo import haversine_km
 from app.common.skills import relevant_skills
+from app.core.config import settings
+from app.core.log_extra import safe_extra
+from app.core.logging import get_logger
 from app.models import Alert, AlertRecipient, Skill, User, UserSkill
 from app.repositories.group_repository import GroupRepository
+
+logger = get_logger(__name__)
 
 # Scoring weights (sum = 1.0).
 _W_SKILL = 0.40
@@ -49,27 +54,69 @@ class RoutingService:
 
         priority_by_group: dict[UUID, int] = {}
         matching_group_ids: list[UUID] = []
+        alert_code = canonical_code(alert.alert_type)
+        matching_group_names: list[str] = []
         for m in memberships:
             configured = type_map.get(m.group_id, [])
-            alert_code = canonical_code(alert.alert_type)
             configured_codes = {canonical_code(code) for code in configured}
             if not configured or alert_code in configured_codes:
                 matching_group_ids.append(m.group_id)
                 priority_by_group[m.group_id] = m.group.priority if m.group else 3
+                if m.group:
+                    matching_group_names.append(m.group.name)
 
         # Fallback: always honor the group the user explicitly chose.
+        forced_primary = False
         if alert.group_id not in matching_group_ids:
             matching_group_ids.append(alert.group_id)
             priority_by_group.setdefault(alert.group_id, 3)
+            forced_primary = True
+            primary = await self.groups.get_by_id(alert.group_id)
+            if primary:
+                matching_group_names.append(primary.name)
+
+        logger.info(
+            "MATCHING_GROUPS_FOR_EMERGENCY_TYPE",
+            extra=safe_extra(
+                alert_id=str(alert.id),
+                emergency_type=alert_code,
+                matching_group_ids=[str(gid) for gid in matching_group_ids],
+                matching_group_names=matching_group_names,
+                forced_primary_group=forced_primary,
+            ),
+        )
 
         members = await self.groups.list_members_for_groups(matching_group_ids)
 
         # Dedup by user, keeping the highest-priority group (lowest number).
         best: dict[UUID, Candidate] = {}
         for member in members:
-            if member.user_id == creator.id or member.user is None:
+            name = member.user.full_name if member.user else None
+            if member.user_id == creator.id:
+                logger.info(
+                    "GROUP_MEMBERS_FOUND",
+                    extra=safe_extra(
+                        member_user_id=str(member.user_id),
+                        member_name=name,
+                        membership_status="ACTIVE",
+                        included_or_skipped="skipped",
+                        skip_reason="sender",
+                    ),
+                )
+                continue
+            if member.user is None:
                 continue
             if member.user.suspended:
+                logger.info(
+                    "GROUP_MEMBERS_FOUND",
+                    extra=safe_extra(
+                        member_user_id=str(member.user_id),
+                        member_name=name,
+                        membership_status="ACTIVE",
+                        included_or_skipped="skipped",
+                        skip_reason="suspended",
+                    ),
+                )
                 continue
             group_priority = priority_by_group.get(member.group_id, 3)
             current = best.get(member.user_id)
@@ -79,6 +126,36 @@ class RoutingService:
                     group_id=member.group_id,
                     group_priority=group_priority,
                 )
+                logger.info(
+                    "GROUP_MEMBERS_FOUND",
+                    extra=safe_extra(
+                        member_user_id=str(member.user_id),
+                        member_name=name,
+                        membership_status="ACTIVE",
+                        included_or_skipped="included",
+                        skip_reason=None,
+                    ),
+                )
+            else:
+                logger.info(
+                    "GROUP_MEMBERS_FOUND",
+                    extra=safe_extra(
+                        member_user_id=str(member.user_id),
+                        member_name=name,
+                        membership_status="ACTIVE",
+                        included_or_skipped="skipped",
+                        skip_reason="lower_priority_duplicate_group",
+                    ),
+                )
+
+        logger.info(
+            "RECIPIENTS_BEFORE_DEDUPE",
+            extra=safe_extra(
+                alert_id=str(alert.id),
+                recipient_user_ids=[str(uid) for uid in best.keys()],
+                count=len(best),
+            ),
+        )
 
         if not best:
             return []
@@ -87,8 +164,6 @@ class RoutingService:
         self._score(best, creator, alert)
 
         ranked = sorted(best.values(), key=lambda c: c.score, reverse=True)
-        from app.core.config import settings
-
         cap = settings.recipient_cap
         if cap > 0:
             ranked = ranked[:cap]
@@ -103,8 +178,17 @@ class RoutingService:
                     rank=rank,
                     score=round(cand.score, 4),
                     notified=True,
+                    delivery_status="pending",
                 )
             )
+        logger.info(
+            "RECIPIENTS_AFTER_DEDUPE",
+            extra=safe_extra(
+                alert_id=str(alert.id),
+                recipient_user_ids=[str(r.user_id) for r in recipients],
+                recipient_count=len(recipients),
+            ),
+        )
         return recipients
 
     async def _attach_skills(self, candidates: dict[UUID, Candidate]) -> None:

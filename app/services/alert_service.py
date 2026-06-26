@@ -51,6 +51,19 @@ class AlertService:
                 "alert_type": body.alert_type.value,
             },
         )
+        logger.info(
+            "ALERT_CREATE_REQUEST",
+            extra={
+                "correlation_id": correlation_id,
+                "sender_user_id": str(user.id),
+                "emergency_type_received": body.alert_type.value,
+                "location_received": {
+                    "latitude": body.latitude,
+                    "longitude": body.longitude,
+                },
+                "group_id": str(body.group_id),
+            },
+        )
         if not user.phone_verified:
             raise ValidationError("Verify your phone number before sending SOS alerts.")
         recent = await self.alerts.recent_active_by_user(
@@ -118,6 +131,16 @@ class AlertService:
                 "sender_user_id": str(user.id),
                 "recipient_count": len(recipient_ids),
                 "recipient_user_ids": recipient_ids,
+            },
+        )
+
+        logger.info(
+            "ALERT_RECIPIENTS_CREATED",
+            extra={
+                "correlation_id": correlation_id,
+                "alert_id": str(alert.id),
+                "recipient_count": len(recipient_ids),
+                "recipient_ids": recipient_ids,
             },
         )
 

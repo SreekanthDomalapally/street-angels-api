@@ -69,6 +69,14 @@ class NotificationWorker:
                 item = await self.queue.dequeue(timeout=0)
                 if item:
                     payload, raw = item
+                    logger.info(
+                        "NOTIFICATION_DEQUEUED",
+                        extra=safe_extra(
+                            type=payload.get("type"),
+                            alert_id=payload.get("alert_id"),
+                            recipient_count=len(payload.get("recipient_user_ids", []) or []),
+                        ),
+                    )
                     await self._process(payload, raw)
             except asyncio.CancelledError:
                 break
@@ -128,6 +136,18 @@ class NotificationWorker:
                 users_with_tokens = [uid for uid in recipient_ids if tokens_by_user.get(uid)]
                 users_without_tokens = [uid for uid in recipient_ids if not tokens_by_user.get(uid)]
                 all_tokens = [token for tokens in tokens_by_user.values() for token in tokens]
+                for uid in recipient_ids:
+                    user_tokens = tokens_by_user.get(uid, [])
+                    logger.info(
+                        "DEVICE_TOKENS_FOR_RECIPIENTS",
+                        extra=safe_extra(
+                            recipient_user_id=uid,
+                            token_exists=bool(user_tokens),
+                            token_active=bool(user_tokens),
+                            token_count=len(user_tokens),
+                            token_preview=f"{user_tokens[0][:28]}…" if user_tokens else None,
+                        ),
+                    )
                 log_extra = safe_extra(
                     correlation_id=payload.get("correlation_id"),
                     alert_id=payload.get("alert_id"),
@@ -151,6 +171,36 @@ class NotificationWorker:
                     )
                 else:
                     try:
+                        logger.info(
+                            "NOTIFICATION_SEND_ATTEMPT",
+                            extra=safe_extra(
+                                alert_id=payload.get("alert_id"),
+                                token_count=len(all_tokens),
+                            ),
+                        )
+                        from app.common.emergency_types import label_for
+
+                        type_label = label_for(str(payload.get("alert_type", "")))
+                        sender = payload.get("sender_name")
+                        notification_payload = {
+                            "title": f"{sender} needs help" if sender else "Emergency alert",
+                            "body": f"{type_label} — tap to respond",
+                            "data": {
+                                "type": "SOS_ALERT",
+                                "alertId": str(payload.get("alert_id", "")),
+                                "senderUserId": str(payload.get("sender_user_id") or ""),
+                                "emergencyType": str(payload.get("alert_type", "")),
+                            },
+                        }
+                        for uid in users_with_tokens:
+                            logger.info(
+                                "NOTIFICATION_PAYLOAD_CREATED",
+                                extra=safe_extra(
+                                    alert_id=payload.get("alert_id"),
+                                    recipient_id=uid,
+                                    payload=notification_payload,
+                                ),
+                            )
                         stale = await self.push.send_alert(all_tokens, payload)
                         await self._mark_recipients_delivered(
                             payload.get("alert_id"),
@@ -164,6 +214,14 @@ class NotificationWorker:
                                 success=False,
                                 error="no_device_token",
                             )
+                        logger.info(
+                            "NOTIFICATION_SEND_SUCCESS",
+                            extra={
+                                **log_extra,
+                                "token_count": len(all_tokens),
+                                "stale_token_count": len(stale),
+                            },
+                        )
                         logger.info(
                             "NOTIFICATION_SENT",
                             extra={
@@ -185,6 +243,10 @@ class NotificationWorker:
                                 success=False,
                                 error="no_device_token",
                             )
+                        logger.error(
+                            "NOTIFICATION_SEND_FAILED",
+                            extra={**log_extra, "error": str(push_exc)},
+                        )
                         logger.error(
                             "NOTIFICATION_FAILED",
                             extra={**log_extra, "error": str(push_exc)},

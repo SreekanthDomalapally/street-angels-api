@@ -54,13 +54,17 @@ class ExpoPushService:
     ) -> list[str]:
         """Send a notification. Returns tokens that are no longer registered."""
         valid = [t for t in dict.fromkeys(tokens) if t and self._is_expo_token(t)]
-        if not settings.push_enabled or not valid:
-            _log_safe("info", "push_skipped", valid=len(valid), received=len(tokens))
+        if not valid:
+            _log_safe("info", "push_skipped", valid=0, received=len(tokens))
             return []
+        if not settings.push_enabled:
+            _log_safe("error", "push_disabled", token_count=len(valid))
+            raise RuntimeError("Push delivery is disabled (PUSH_ENABLED=false)")
 
-        messages = [
+        # One Expo message per token so tickets map 1:1 for stale-token cleanup.
+        message_bodies = [
             {
-                "to": chunk,
+                "to": token,
                 "title": title,
                 "body": body,
                 "data": data or {},
@@ -68,30 +72,33 @@ class ExpoPushService:
                 "priority": "high" if high_priority else "default",
                 **({"channelId": channel_id} if channel_id else {}),
             }
-            for chunk in _chunk(valid, _MAX_TOKENS_PER_MESSAGE)
+            for token in valid
         ]
 
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if settings.expo_access_token:
             headers["Authorization"] = f"Bearer {settings.expo_access_token}"
 
+        stale: list[str] = []
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(EXPO_PUSH_URL, json=messages, headers=headers)
-                if resp.status_code >= 400:
-                    response_body = resp.text[:500]
-                    _log_safe(
-                        "error",
-                        "push_send_http_error",
-                        status=resp.status_code,
-                        response_body=response_body,
-                    )
-                    raise RuntimeError(f"Expo push HTTP {resp.status_code}: {response_body}")
-                try:
-                    return self._collect_stale(resp.json(), valid)
-                except Exception as exc:
-                    _log_safe("error", "push_ticket_parse_failed", error=repr(exc))
-                    return []
+            async with httpx.AsyncClient(timeout=30) as client:
+                for chunk in _chunk(message_bodies, _MAX_TOKENS_PER_MESSAGE):
+                    resp = await client.post(EXPO_PUSH_URL, json=chunk, headers=headers)
+                    if resp.status_code >= 400:
+                        response_body = resp.text[:500]
+                        _log_safe(
+                            "error",
+                            "push_send_http_error",
+                            status=resp.status_code,
+                            response_body=response_body,
+                        )
+                        raise RuntimeError(f"Expo push HTTP {resp.status_code}: {response_body}")
+                    try:
+                        chunk_tokens = [msg["to"] for msg in chunk]
+                        stale.extend(self._collect_stale(resp.json(), chunk_tokens))
+                    except Exception as exc:
+                        _log_safe("error", "push_ticket_parse_failed", error=repr(exc))
+            return stale
         except RuntimeError:
             raise
         except Exception as exc:
@@ -106,15 +113,27 @@ class ExpoPushService:
         for token, ticket in zip(tokens, tickets):
             if not isinstance(ticket, dict):
                 continue
-            if ticket.get("status") == "ok":
+            ticket_id = ticket.get("id")
+            status = ticket.get("status")
+            if status == "ok":
                 ok += 1
+                _log_safe(
+                    "info",
+                    "EXPO_PUSH_RESPONSE",
+                    ticket_id=ticket_id,
+                    status=status,
+                    token_preview=f"{token[:24]}…" if token else None,
+                )
                 continue
             err = (ticket.get("details") or {}).get("error")
             _log_safe(
                 "warning",
-                "push_ticket_error",
-                ticket_message=ticket.get("message"),
+                "EXPO_PUSH_RESPONSE",
+                ticket_id=ticket_id,
+                status=status,
                 error=err,
+                ticket_message=ticket.get("message"),
+                token_preview=f"{token[:24]}…" if token else None,
             )
             if err == "DeviceNotRegistered":
                 stale.append(token)
@@ -154,7 +173,10 @@ class ExpoPushService:
             title=title,
             body=f"{type_label} — tap to respond",
             data={
-                "type": "sos_alert",
+                "type": "SOS_ALERT",
+                "alertId": str(payload.get("alert_id", "")),
+                "senderUserId": str(payload.get("sender_user_id") or ""),
+                "emergencyType": str(payload.get("alert_type", "")),
                 "alert_id": str(payload.get("alert_id", "")),
                 "alert_type": str(payload.get("alert_type", "")),
                 "sender_name": str(payload.get("sender_name") or ""),
