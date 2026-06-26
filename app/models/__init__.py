@@ -39,6 +39,7 @@ class User(Base):
     languages: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     vehicle_available: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     medical_background: Mapped[str | None] = mapped_column(Text, nullable=True)
+    blood_group: Mapped[str | None] = mapped_column(String(8), nullable=True)
     available_for_emergencies: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     location_visibility: Mapped[str] = mapped_column(String(32), nullable=False, server_default="groups")
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)

@@ -11,6 +11,8 @@ from sqlalchemy.orm import attributes
 from app.models import Alert, AlertRecipient, AlertResponse, User
 from app.schemas import AlertOut, AlertResponseItem
 
+MEDICAL_ALERT_TYPES = frozenset({"medical", "personal_safety", "medical_help"})
+
 
 async def _alert_responses(db: AsyncSession, alert: Alert) -> list[AlertResponse]:
     """Load responses without async lazy-load (avoids 500 on POST /alerts)."""
@@ -21,7 +23,25 @@ async def _alert_responses(db: AsyncSession, alert: Alert) -> list[AlertResponse
     return list(result.scalars().all())
 
 
-async def serialize_alert(db: AsyncSession, alert: Alert) -> AlertOut:
+def _attach_creator_medical_info(
+    out: AlertOut,
+    alert: Alert,
+    creator: User | None,
+    viewer: User | None,
+) -> None:
+    if not viewer or viewer.id == alert.created_by:
+        return
+    if alert.alert_type not in MEDICAL_ALERT_TYPES or not creator:
+        return
+    out.creator_medical_background = creator.medical_background
+    out.creator_blood_group = creator.blood_group
+
+
+async def serialize_alert(
+    db: AsyncSession,
+    alert: Alert,
+    viewer: User | None = None,
+) -> AlertOut:
     creator = await db.get(User, alert.created_by)
     recipient_count = await db.scalar(
         select(func.count()).select_from(AlertRecipient).where(AlertRecipient.alert_id == alert.id)
@@ -41,6 +61,7 @@ async def serialize_alert(db: AsyncSession, alert: Alert) -> AlertOut:
     else:
         out.creator_phone = None
     out.recipient_count = int(recipient_count or 0)
+    _attach_creator_medical_info(out, alert, creator, viewer)
 
     enriched_responses: list[AlertResponseItem] = []
     for item in response_items:
@@ -55,7 +76,11 @@ async def serialize_alert(db: AsyncSession, alert: Alert) -> AlertOut:
     return out
 
 
-async def serialize_alerts(db: AsyncSession, alerts: list[Alert]) -> list[AlertOut]:
+async def serialize_alerts(
+    db: AsyncSession,
+    alerts: list[Alert],
+    viewer: User | None = None,
+) -> list[AlertOut]:
     if not alerts:
         return []
 
@@ -97,6 +122,7 @@ async def serialize_alerts(db: AsyncSession, alerts: list[Alert]) -> list[AlertO
         else:
             out.creator_phone = None
         out.recipient_count = recipient_counts.get(alert.id, 0)
+        _attach_creator_medical_info(out, alert, creator, viewer)
 
         enriched_responses: list[AlertResponseItem] = []
         for item in responses_by_alert.get(alert.id, []):

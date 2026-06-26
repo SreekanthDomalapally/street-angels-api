@@ -34,6 +34,8 @@ async def test_serialize_fresh_alert_without_loaded_responses():
             full_name="Diya",
             phone_number=None,
             phone_verified=False,
+            medical_background="Asthma",
+            blood_group="O+",
         )
     )
     db.scalar = AsyncMock(return_value=2)
@@ -48,3 +50,42 @@ async def test_serialize_fresh_alert_without_loaded_responses():
     assert result.recipient_count == 2
     assert result.responses == []
     db.execute.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_medical_info_visible_to_recipients_only():
+    creator_id = uuid4()
+    recipient_id = uuid4()
+    alert = Alert(
+        id=uuid4(),
+        created_by=creator_id,
+        group_id=uuid4(),
+        alert_type="medical",
+        latitude=53.0,
+        longitude=-6.0,
+        status="active",
+        created_at=datetime.now(UTC),
+    )
+    creator = MagicMock(
+        full_name="Alex",
+        phone_number="+353871234567",
+        phone_verified=True,
+        medical_background="Diabetes",
+        blood_group="A+",
+    )
+    recipient = MagicMock(id=recipient_id)
+
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=creator)
+    db.scalar = AsyncMock(return_value=1)
+    empty_responses = MagicMock()
+    empty_responses.scalars.return_value.all.return_value = []
+    db.execute = AsyncMock(return_value=empty_responses)
+
+    for_viewer = await serialize_alert(db, alert, viewer=recipient)
+    assert for_viewer.creator_blood_group == "A+"
+    assert for_viewer.creator_medical_background == "Diabetes"
+
+    for_creator = await serialize_alert(db, alert, viewer=MagicMock(id=creator_id))
+    assert for_creator.creator_blood_group is None
+    assert for_creator.creator_medical_background is None

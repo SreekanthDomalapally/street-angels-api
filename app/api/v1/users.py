@@ -73,6 +73,8 @@ async def update_profile(
         user.vehicle_available = body.vehicle_available
     if body.medical_background is not None:
         user.medical_background = body.medical_background
+    if body.blood_group is not None:
+        user.blood_group = body.blood_group.strip() or None
     if body.available_for_emergencies is not None:
         user.available_for_emergencies = body.available_for_emergencies
     if body.location_visibility is not None:

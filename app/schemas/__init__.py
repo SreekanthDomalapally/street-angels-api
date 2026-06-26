@@ -65,6 +65,7 @@ class UserResponse(BaseModel):
     languages: list = Field(default_factory=list)
     vehicle_available: bool = False
     medical_background: str | None = None
+    blood_group: str | None = None
     available_for_emergencies: bool = True
     location_visibility: str = "groups"
     created_at: datetime
@@ -182,6 +183,7 @@ class UserUpdateRequest(BaseModel):
     languages: list[str] | None = Field(default=None, max_length=50)
     vehicle_available: bool | None = None
     medical_background: str | None = Field(default=None, max_length=1000)
+    blood_group: str | None = Field(default=None, max_length=8)
     available_for_emergencies: bool | None = None
     location_visibility: str | None = None
 
@@ -383,6 +385,8 @@ class AlertOut(BaseModel):
     resolved_at: datetime | None
     creator_name: str | None = None
     creator_phone: str | None = None
+    creator_blood_group: str | None = None
+    creator_medical_background: str | None = None
     recipient_count: int | None = None
     responses: list[AlertResponseItem] = []
 
