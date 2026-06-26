@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from slowapi import Limiter
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from app.schemas import (
 from app.core.redis_rate_limit import redis_rate_limiter
 from app.services.alert_serializer import serialize_alert, serialize_alerts
 from app.services.alert_service import AlertService
+from app.services.notification_flush import flush_sos_notifications
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -40,9 +41,11 @@ async def create_alert(
     body: AlertCreateRequest,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ) -> AlertOut:
     await redis_rate_limiter.check(f"sos:{user.id}", limit=5, window_seconds=60)
     created = await AlertService(db).create(user, body)
+    background_tasks.add_task(flush_sos_notifications)
     return await serialize_alert(db, created, viewer=user)
 
 

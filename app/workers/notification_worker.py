@@ -33,6 +33,7 @@ class NotificationWorker:
         if recovered:
             logger.warning("notification_processing_recovered", extra={"count": recovered})
         self._task = asyncio.create_task(self._run())
+        logger.info("NOTIFICATION_WORKER_STARTED")
         logger.info("notification_worker_started")
 
     async def stop(self) -> None:
@@ -132,12 +133,30 @@ class NotificationWorker:
             stale: list[str] = []
             if msg_type == "alert_created":
                 recipient_ids = [str(uid) for uid in payload.get("recipient_user_ids", []) if uid]
+                logger.info(
+                    "DEVICE_TOKEN_LOOKUP_STARTED",
+                    extra=safe_extra(
+                        alert_id=payload.get("alert_id"),
+                        recipient_count=len(recipient_ids),
+                        recipient_user_ids=recipient_ids,
+                    ),
+                )
                 tokens_by_user = await self._tokens_by_user(recipient_ids)
                 users_with_tokens = [uid for uid in recipient_ids if tokens_by_user.get(uid)]
                 users_without_tokens = [uid for uid in recipient_ids if not tokens_by_user.get(uid)]
                 all_tokens = [token for tokens in tokens_by_user.values() for token in tokens]
                 for uid in recipient_ids:
                     user_tokens = tokens_by_user.get(uid, [])
+                    logger.info(
+                        "DEVICE_TOKEN_LOOKUP",
+                        extra=safe_extra(
+                            recipient_user_id=uid,
+                            token_found=bool(user_tokens),
+                            token_active=bool(user_tokens),
+                            token_count=len(user_tokens),
+                            token_preview=f"{user_tokens[0][:28]}…" if user_tokens else None,
+                        ),
+                    )
                     logger.info(
                         "DEVICE_TOKENS_FOR_RECIPIENTS",
                         extra=safe_extra(
@@ -182,9 +201,11 @@ class NotificationWorker:
 
                         type_label = label_for(str(payload.get("alert_type", "")))
                         sender = payload.get("sender_name")
+                        title = f"{sender} needs help" if sender else "Emergency alert"
+                        body = f"{type_label} alert. Tap to view live location."
                         notification_payload = {
-                            "title": f"{sender} needs help" if sender else "Emergency alert",
-                            "body": f"{type_label} — tap to respond",
+                            "title": title,
+                            "body": body,
                             "data": {
                                 "type": "SOS_ALERT",
                                 "alertId": str(payload.get("alert_id", "")),
@@ -194,11 +215,13 @@ class NotificationWorker:
                         }
                         for uid in users_with_tokens:
                             logger.info(
-                                "NOTIFICATION_PAYLOAD_CREATED",
+                                "SOS_NOTIFICATION_PAYLOAD_CREATED",
                                 extra=safe_extra(
                                     alert_id=payload.get("alert_id"),
                                     recipient_id=uid,
-                                    payload=notification_payload,
+                                    title=title,
+                                    body=body,
+                                    data=notification_payload["data"],
                                 ),
                             )
                         stale = await self.push.send_alert(all_tokens, payload)

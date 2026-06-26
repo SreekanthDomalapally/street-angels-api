@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 import httpx
 
+from app.common.push_constants import SOS_ALERT_CHANNEL_ID
 from app.core.config import settings
 from app.core.log_extra import safe_extra
 from app.core.logging import get_logger
@@ -83,6 +84,14 @@ class ExpoPushService:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 for chunk in _chunk(message_bodies, _MAX_TOKENS_PER_MESSAGE):
+                    chunk_tokens = [msg["to"] for msg in chunk]
+                    _log_safe(
+                        "info",
+                        "EXPO_PUSH_REQUEST",
+                        token_count=len(chunk_tokens),
+                        channel_id=channel_id,
+                        title=title,
+                    )
                     resp = await client.post(EXPO_PUSH_URL, json=chunk, headers=headers)
                     if resp.status_code >= 400:
                         response_body = resp.text[:500]
@@ -168,10 +177,11 @@ class ExpoPushService:
         type_label = label_for(str(payload.get("alert_type", "")))
         sender = payload.get("sender_name")
         title = f"{sender} needs help" if sender else "Emergency alert"
+        body = f"{type_label} alert. Tap to view live location."
         return await self.send_to_tokens(
             tokens,
             title=title,
-            body=f"{type_label} — tap to respond",
+            body=body,
             data={
                 "type": "SOS_ALERT",
                 "alertId": str(payload.get("alert_id", "")),
@@ -183,6 +193,6 @@ class ExpoPushService:
                 "sender_user_id": str(payload.get("sender_user_id") or ""),
                 "correlation_id": str(payload.get("correlation_id") or ""),
             },
-            channel_id="emergency",
+            channel_id=SOS_ALERT_CHANNEL_ID,
             high_priority=True,
         )

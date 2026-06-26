@@ -48,13 +48,20 @@ class RoutingService:
         self.groups = GroupRepository(db)
 
     async def build_recipients(self, creator: User, alert: Alert) -> list[AlertRecipient]:
+        alert_code = canonical_code(alert.alert_type)
+        logger.info(
+            "EMERGENCY_TYPE_ROUTING_STARTED",
+            extra=safe_extra(
+                alert_id=str(alert.id),
+                emergency_type=alert_code,
+            ),
+        )
         memberships = await self.groups.list_memberships_for_user(creator.id)
         all_group_ids = [m.group_id for m in memberships]
         type_map = await self.groups.list_emergency_types_for_groups(all_group_ids)
 
         priority_by_group: dict[UUID, int] = {}
         matching_group_ids: list[UUID] = []
-        alert_code = canonical_code(alert.alert_type)
         matching_group_names: list[str] = []
         for m in memberships:
             configured = type_map.get(m.group_id, [])
@@ -80,6 +87,7 @@ class RoutingService:
             extra=safe_extra(
                 alert_id=str(alert.id),
                 emergency_type=alert_code,
+                matching_group_count=len(matching_group_ids),
                 matching_group_ids=[str(gid) for gid in matching_group_ids],
                 matching_group_names=matching_group_names,
                 forced_primary_group=forced_primary,
@@ -99,7 +107,9 @@ class RoutingService:
                         member_user_id=str(member.user_id),
                         member_name=name,
                         membership_status="ACTIVE",
+                        member_status="ACTIVE",
                         included_or_skipped="skipped",
+                        included=False,
                         skip_reason="sender",
                     ),
                 )
@@ -113,7 +123,9 @@ class RoutingService:
                         member_user_id=str(member.user_id),
                         member_name=name,
                         membership_status="ACTIVE",
+                        member_status="ACTIVE",
                         included_or_skipped="skipped",
+                        included=False,
                         skip_reason="suspended",
                     ),
                 )
@@ -132,7 +144,9 @@ class RoutingService:
                         member_user_id=str(member.user_id),
                         member_name=name,
                         membership_status="ACTIVE",
+                        member_status="ACTIVE",
                         included_or_skipped="included",
+                        included=True,
                         skip_reason=None,
                     ),
                 )
@@ -185,6 +199,7 @@ class RoutingService:
             "RECIPIENTS_AFTER_DEDUPE",
             extra=safe_extra(
                 alert_id=str(alert.id),
+                final_recipient_ids=[str(r.user_id) for r in recipients],
                 recipient_user_ids=[str(r.user_id) for r in recipients],
                 recipient_count=len(recipients),
             ),

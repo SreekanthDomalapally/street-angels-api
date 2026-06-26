@@ -43,6 +43,17 @@ class AlertService:
     async def create(self, user: User, body: AlertCreateRequest) -> Alert:
         correlation_id = str(uuid4())
         logger.info(
+            "ALERT_CREATE_STARTED",
+            extra={
+                "correlation_id": correlation_id,
+                "sender_user_id": str(user.id),
+                "emergency_type_received": body.alert_type.value,
+                "latitude": body.latitude,
+                "longitude": body.longitude,
+                "group_id": str(body.group_id),
+            },
+        )
+        logger.info(
             "SOS_TRIGGERED",
             extra={
                 "correlation_id": correlation_id,
@@ -161,6 +172,14 @@ class AlertService:
             "notification_queued_at": datetime.now(UTC).isoformat(),
         }
         await self.outbox.enqueue_in_transaction(outbox_payload)
+        logger.info(
+            "NOTIFICATION_QUEUE_ATTEMPT",
+            extra={
+                "correlation_id": correlation_id,
+                "alert_id": str(alert.id),
+                "recipient_count": len(recipient_ids),
+            },
+        )
         logger.info(
             "NOTIFICATION_QUEUED",
             extra={

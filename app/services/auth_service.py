@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import ConflictError, ForbiddenError, UnauthorizedError, ValidationError
+from app.core.log_extra import safe_extra
+from app.core.logging import get_logger
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -16,6 +18,8 @@ from app.core.security import (
 from app.models import DeviceToken, RefreshToken, User
 from app.repositories.user_repository import UserRepository
 from app.schemas import DeviceTokenRequest, GoogleAuthRequest, LoginRequest, RegisterRequest, TokenPair
+
+logger = get_logger(__name__)
 
 
 class AuthService:
@@ -122,9 +126,27 @@ class AuthService:
         if existing:
             existing.platform = body.platform
             existing.updated_at = datetime.now(UTC)
+            logger.info(
+                "DEVICE_TOKEN_SAVED",
+                extra=safe_extra(
+                    user_id=str(user.id),
+                    platform=body.platform,
+                    token_preview=f"{body.token[:28]}…" if body.token else None,
+                    updated=True,
+                ),
+            )
             return
         self.db.add(
             DeviceToken(user_id=user.id, token=body.token, platform=body.platform)
+        )
+        logger.info(
+            "DEVICE_TOKEN_SAVED",
+            extra=safe_extra(
+                user_id=str(user.id),
+                platform=body.platform,
+                token_preview=f"{body.token[:28]}…" if body.token else None,
+                updated=False,
+            ),
         )
 
     def _ensure_active(self, user: User) -> None:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.push_constants import SOS_ALERT_CHANNEL_ID
 from app.core.config import settings
 from app.core.dependencies import get_current_user, require_admin
 from app.core.exceptions import ForbiddenError
@@ -21,12 +22,12 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 
 def _require_debug_tools(user: User) -> None:
-  """Routing preview and test push are admin-only in production."""
-  if not settings.is_production:
-    return
-  if user.is_admin or user.email.lower() in settings.admin_email_set:
-    return
-  raise ForbiddenError("Debug tools require admin access in production")
+    """Routing preview and test push are admin-only in production."""
+    if not settings.is_production:
+        return
+    if user.is_admin or user.email.lower() in settings.admin_email_set:
+        return
+    raise ForbiddenError("Debug tools require admin access in production")
 
 
 @router.get("/alerts/{alert_id}/delivery")
@@ -39,8 +40,8 @@ async def alert_delivery_report(
     from app.services.notification_health import collect_notification_health
 
     health = await collect_notification_health()
-    report["notification_queue_status"] = health.get("checks", {}).get("redis_queue", {})
-    report["push_send_status"] = health.get("checks", {}).get("push_pipeline", {})
+    report["notification_queue_status"] = health.get("checks", {}).get("redis", {})
+    report["push_send_status"] = health.get("checks", {}).get("push", {})
     report["delivery_status"] = {
         "delivered": sum(
             1 for r in report.get("selected_recipients", []) if r.get("delivery_status") == "delivered"
@@ -81,9 +82,42 @@ async def push_test_me(
     await push.send_to_tokens(
         tokens,
         title="YouHoo Alert test",
-        body="Push delivery is working.",
-        data={"type": "sos_alert", "is_own_alert": True},
-        channel_id="emergency",
+        body="Push delivery is working. Tap to open the app.",
+        data={"type": "SOS_ALERT", "is_own_alert": True},
+        channel_id=SOS_ALERT_CHANNEL_ID,
+        high_priority=True,
+    )
+
+
+@router.post("/push/test-group", status_code=204)
+async def push_test_group(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    emergency_type: str = Query(..., alias="emergency_type"),
+    group_id: UUID = Query(..., alias="group_id"),
+) -> None:
+    """Send a test SOS-style push to all routed recipients for a group/emergency type."""
+    _require_debug_tools(user)
+    preview = await build_routing_preview(db, user, emergency_type=emergency_type, group_id=group_id)
+    recipient_ids = [UUID(uid) for uid in preview.get("recipient_user_ids", [])]
+    if not recipient_ids:
+        raise ForbiddenError("No recipients would be selected for this SOS routing")
+    result = await db.execute(select(DeviceToken.token).where(DeviceToken.user_id.in_(recipient_ids)))
+    tokens = [row[0] for row in result.all()]
+    if not tokens:
+        raise ForbiddenError("No device tokens for selected recipients")
+    push = ExpoPushService()
+    await push.send_to_tokens(
+        tokens,
+        title=f"{user.full_name} needs help (test)",
+        body="Test SOS alert. Tap to view live location.",
+        data={
+            "type": "SOS_ALERT",
+            "alertId": "00000000-0000-0000-0000-000000000000",
+            "senderUserId": str(user.id),
+            "emergencyType": emergency_type,
+        },
+        channel_id=SOS_ALERT_CHANNEL_ID,
         high_priority=True,
     )
 
@@ -96,4 +130,5 @@ async def debug_status(
         "environment": settings.environment,
         "push_enabled": settings.push_enabled,
         "debug_mode": settings.debug,
+        "sos_channel_id": SOS_ALERT_CHANNEL_ID,
     }
