@@ -91,6 +91,8 @@ class Settings(BaseSettings):
     enable_legacy_api: bool = Field(default=False, alias="ENABLE_LEGACY_API")
     # Return OTP in API responses for Expo Go / internal testing (no SMS). Disable before public launch.
     dev_otp_enabled: bool = Field(default=False, alias="DEV_OTP_ENABLED")
+    # SOS /debug routes (routing preview, test push). Off in production unless explicitly enabled.
+    sos_debug_endpoints_enabled: bool = Field(default=False, alias="SOS_DEBUG_ENDPOINTS_ENABLED")
     location_min_update_seconds: float = 5.0
     location_max_accuracy_meters: float = 500.0
     sos_cooldown_seconds: int = Field(default=60, alias="SOS_COOLDOWN_SECONDS")
@@ -160,6 +162,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def sos_debug_endpoints_available(self) -> bool:
+        """Debug HTTP routes: always in non-production; in production only when flag is set."""
+        return not self.is_production or self.sos_debug_endpoints_enabled
 
 
 @lru_cache

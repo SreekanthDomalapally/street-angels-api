@@ -2,9 +2,11 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.phone import normalize_phone_e164
+from sqlalchemy import select
+
+from app.common.phone import normalize_phone_e164, sanitize_display_name
 from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
-from app.models import AuditLog, GroupInvite, GroupMember, User
+from app.models import AuditLog, GroupInvite, GroupMember, PhoneInvite, User
 from app.repositories.group_repository import GroupRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas import ContactDirectoryItem, ContactDirectoryResponse, ContactGroupsUpdateRequest
@@ -17,9 +19,26 @@ class ContactService:
         self.groups = GroupRepository(db)
         self.users = UserRepository(db)
 
+    async def _pending_phone_invite_labels(self, inviter_id: UUID) -> dict[str, str]:
+        result = await self.db.execute(
+            select(PhoneInvite.invited_phone_number, PhoneInvite.display_name).where(
+                PhoneInvite.inviter_user_id == inviter_id,
+                PhoneInvite.status == "pending",
+            )
+        )
+        labels: dict[str, str] = {}
+        for phone, name in result.all():
+            if phone in labels:
+                continue
+            sanitized = sanitize_display_name(name)
+            if sanitized:
+                labels[phone] = sanitized
+        return labels
+
     async def directory(self, user: User) -> ContactDirectoryResponse:
         members = await self.groups.list_members_across_user_groups(user.id)
         invites = await self.groups.list_pending_invites_for_admin_groups(user.id)
+        phone_invite_labels = await self._pending_phone_invite_labels(user.id)
 
         by_user: dict[UUID, ContactDirectoryItem] = {}
         for member in members:
@@ -65,16 +84,19 @@ class ContactService:
                         entry.group_ids.append(invite.group_id)
                     continue
                 entry = by_phone.get(phone)
+                label = phone_invite_labels.get(phone)
                 if entry is None:
                     entry = ContactDirectoryItem(
                         user_id=None,
-                        display_name=None,
+                        display_name=label,
                         email=None,
                         phone=phone,
                         group_ids=[],
                         status="invited",
                     )
                     by_phone[phone] = entry
+                elif not entry.display_name and label:
+                    entry.display_name = label
                 if invite.group_id not in entry.group_ids:
                     entry.group_ids.append(invite.group_id)
                 continue
