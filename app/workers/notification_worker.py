@@ -4,11 +4,10 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.log_extra import safe_extra
 from app.core.logging import get_logger
-from app.db.session import get_engine
+from app.db.session import get_session_factory
 from app.models import AlertRecipient, DeviceToken
 from app.services.expo_push_service import ExpoPushService
 from app.services.notification_outbox import NotificationOutbox
@@ -67,7 +66,8 @@ class NotificationWorker:
             try:
                 self._last_heartbeat = datetime.now(UTC)
                 await self._drain_outbox()
-                item = await self.queue.dequeue(timeout=0)
+                # timeout=0 can busy-spin on some redis-py builds; block briefly instead.
+                item = await self.queue.dequeue(timeout=2)
                 if item:
                     payload, raw = item
                     logger.info(
@@ -83,13 +83,12 @@ class NotificationWorker:
                 break
             except Exception as exc:
                 logger.exception("notification_worker_error", extra={"error": str(exc)})
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
 
     async def _drain_outbox(self) -> None:
-        engine = get_engine()
-        if not engine:
+        factory = get_session_factory()
+        if not factory:
             return
-        factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             outbox = NotificationOutbox(session)
             published = await outbox.drain_pending()
@@ -98,10 +97,9 @@ class NotificationWorker:
                 logger.info("outbox_drained", extra={"published": published})
 
     async def drain_outbox_once(self) -> int:
-        engine = get_engine()
-        if not engine:
+        factory = get_session_factory()
+        if not factory:
             return 0
-        factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             outbox = NotificationOutbox(session)
             published = await outbox.drain_pending()
@@ -350,10 +348,9 @@ class NotificationWorker:
     ) -> None:
         if not alert_id or not user_ids:
             return
-        engine = get_engine()
-        if not engine:
+        factory = get_session_factory()
+        if not factory:
             return
-        factory = async_sessionmaker(engine, expire_on_commit=False)
         ids = [UUID(uid) for uid in user_ids if uid]
         if not ids:
             return
@@ -376,20 +373,18 @@ class NotificationWorker:
     async def _remove_stale_tokens(self, tokens: list[str]) -> None:
         if not tokens:
             return
-        engine = get_engine()
-        if not engine:
+        factory = get_session_factory()
+        if not factory:
             return
-        factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             await session.execute(delete(DeviceToken).where(DeviceToken.token.in_(tokens)))
             await session.commit()
         logger.info("push_tokens_removed", extra={"count": len(tokens)})
 
     async def _tokens_by_user(self, user_ids: list[str]) -> dict[str, list[str]]:
-        engine = get_engine()
-        if not engine:
+        factory = get_session_factory()
+        if not factory:
             return {}
-        factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             ids = [UUID(uid) for uid in user_ids if uid]
             if not ids:
